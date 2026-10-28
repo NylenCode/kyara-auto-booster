@@ -572,6 +572,11 @@ def ouvrir_boosters():
 # ============================================================
 # LANCEMENT
 # ============================================================
+def majuscule(texte):
+    """Première lettre en majuscule, le reste tel quel (« Shonen Mix »)."""
+    return texte[:1].upper() + texte[1:]
+
+
 def main():
     global detecteur_compteur
     print("=" * 60)
@@ -591,7 +596,7 @@ def main():
         print(f"{PREFIXE}    autre / pas reconnu : {decrire(ROTATION, CHASSE, None)}, "
               f"{texte_capacite(CAPACITE_MAX)}.")
     else:
-        print(f"{PREFIXE} {decrire(ROTATION, CHASSE, None).capitalize()}, "
+        print(f"{PREFIXE} {majuscule(decrire(ROTATION, CHASSE, None))}, "
               f"{texte_capacite(CAPACITE_MAX)}.")
 
     detecteur = DetecteurCompteur(

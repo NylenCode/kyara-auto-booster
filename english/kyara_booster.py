@@ -574,6 +574,11 @@ def open_boosters():
 # ============================================================
 # START
 # ============================================================
+def capital(text):
+    """First letter in capital, the rest as it is ("Shonen Mix")."""
+    return text[:1].upper() + text[1:]
+
+
 def main():
     global counter_detector
     print("=" * 60)
@@ -593,7 +598,7 @@ def main():
         print(f"{PREFIX}    other / not recognized: {describe(ROTATION, HUNT, None)}, "
               f"{capacity_text(MAX_CAPACITY)}.")
     else:
-        print(f"{PREFIX} {describe(ROTATION, HUNT, None).capitalize()}, "
+        print(f"{PREFIX} {capital(describe(ROTATION, HUNT, None))}, "
               f"{capacity_text(MAX_CAPACITY)}.")
 
     detector = CounterDetector(
