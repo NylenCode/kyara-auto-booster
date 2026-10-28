@@ -1,0 +1,9 @@
+# Created by the scripts while running
+debug/
+hunts/
+chasses/
+backups/
+sauvegardes/
+*.bak
+__pycache__/
+*.pyc

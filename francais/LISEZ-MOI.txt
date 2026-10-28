@@ -1,0 +1,477 @@
+=====================================================================
+  KYARA BOOSTER — MODE D'EMPLOI
+=====================================================================
+
+C'EST QUOI ?
+  Un petit programme qui ouvre tes boosters Kyara tout seul.
+  Il surveille le compteur en haut de la page (« 3/10 », « 7/10 »…).
+  Dès qu'il est plein (10/10, ou 20/20 avec un abonnement), il clique
+  à ta place pour ouvrir les boosters, puis il recommence à attendre.
+
+  Tu n'as rien à écrire dans les fichiers : un « assistant » te pose
+  des questions et règle tout pour toi.
+
+
+SOMMAIRE
+  1. Ouvrir le terminal ............ la fenêtre où l'on tape les commandes
+  2. Installer (une seule fois) .... 3 choses à installer
+  3. Régler ........................ l'assistant, la première fois
+  4. Lancer et arrêter
+  5. Le menu de l'assistant, choix par choix
+  6. Deux navigateurs en même temps
+  7. Un problème ?
+  8. Pour les curieux : régler à la main (pas nécessaire)
+
+
+=====================================================================
+ 1. OUVRIR LE TERMINAL
+=====================================================================
+  Le terminal est une fenêtre noire (ou bleue) où l'on tape des
+  commandes. Il faut l'ouvrir DANS CE DOSSIER.
+
+  Le plus simple (Windows 11) :
+    1. Ouvre ce dossier (celui où se trouve ce fichier LISEZ-MOI).
+    2. Fais un clic droit dans un espace vide du dossier
+       (pas sur un fichier).
+    3. Clique sur « Ouvrir dans le Terminal ».
+
+  Sous Windows 10 : maintiens la touche Maj, fais un clic droit dans
+  un espace vide, puis « Ouvrir la fenêtre PowerShell ici ».
+
+  Autre façon, si tu ne vois pas ces options :
+    clique dans la barre d'adresse en haut du dossier (là où est écrit
+    le chemin), efface tout, tape  cmd  puis appuie sur Entrée.
+
+  Pour taper une commande : écris-la (ou copie-colle-la), puis
+  appuie sur Entrée.
+
+  Astuces :
+    - Flèche du haut = remet la commande précédente.
+    - Fermer la fenêtre du terminal arrête le programme.
+
+
+=====================================================================
+ 2. INSTALLER (une seule fois par ordinateur)
+=====================================================================
+  Il faut installer 3 choses. Tape ces commandes une par une dans le
+  terminal, en attendant la fin de chacune.
+
+  Si on te demande d'accepter des conditions : tape  Y  puis Entrée.
+  Si Windows demande l'autorisation : clique sur Oui.
+
+  ÉTAPE 1 — Python (fait fonctionner le programme)
+      winget install -e --id Python.Python.3.13
+    Ensuite, FERME le terminal et ROUVRE-LE (c'est important).
+
+  ÉTAPE 2 — Les outils de Python (souris, captures d'écran)
+      python -m pip install pyautogui pytesseract mss pillow
+    À la fin, tu dois voir « Successfully installed »
+    (ou « Requirement already satisfied » : c'est bon aussi).
+
+  ÉTAPE 3 — Tesseract (sert à lire le texte affiché à l'écran)
+      winget install -e --id UB-Mannheim.TesseractOCR
+    Si une fenêtre d'installation s'ouvre : ne change pas le dossier
+    proposé, clique simplement sur Suivant jusqu'à la fin.
+
+  VÉRIFICATION — tape :
+      python -c "import pyautogui, pytesseract, mss, PIL; print('OK')"
+    Si ça affiche OK, tout est prêt.
+
+  Sans winget (installation à la main) :
+    - Python : https://www.python.org/downloads/
+      À la première fenêtre, COCHE « Add python.exe to PATH ».
+    - Tesseract : https://github.com/UB-Mannheim/tesseract/wiki
+      (installeur Windows 64 bits, dossier proposé à garder).
+
+
+=====================================================================
+ 3. RÉGLER (la première fois)
+=====================================================================
+  1. Ouvre Kyara dans ton navigateur (Opera, Brave, Chrome…), sur la
+     page des boosters.
+  2. Dans le terminal, tape :
+         python configurer_positions.py
+  3. Il demande quel « script » régler. Un script = un navigateur.
+     La première fois, appuie juste sur Entrée.
+  4. Il voit que rien n'est encore réglé et affiche la liste de ce
+     qui manque. À « On les règle maintenant ? », appuie sur Entrée
+     (= oui).
+  5. Il affiche la liste des boosters du jeu, avec un numéro :
+         1  Shonen Mix      4  Seinen          7  Mecha
+         2  Shonen          5  Shojo           8  Waifus
+         3  Isekai          6  Sport           9  Husbandos
+     Tape les NUMÉROS des packs à ouvrir, séparés par des virgules.
+     Exemples :
+         3          -> toujours Isekai
+         3, 1       -> un Isekai, puis un Shonen Mix, etc.
+     Pas besoin d'écrire les noms.
+  6. Ensuite, il te montre les endroits où cliquer, un par un.
+     Pour chacun :
+         - mets la souris dessus, dans le navigateur ;
+         - appuie sur la touche  G  du clavier.
+     C'est tout : la position est enregistrée.
+         G     = enregistrer l'endroit où est la souris
+         N     = passer (garder l'ancien endroit)
+         Échap = arrêter (ce qui est fait est gardé)
+     Tu peux cliquer normalement dans le navigateur entre deux : seule
+     la touche G enregistre.
+  7. Quand tout est réglé, il affiche « Tout est réglé : le script
+     peut démarrer. » Le menu revient : appuie sur Entrée pour quitter.
+
+  S'il manque encore quelque chose (par exemple un bouton passé avec
+  N), il le dit en quittant. Rouvre simplement l'assistant plus tard :
+  il redemandera uniquement ce qui manque.
+
+  Bon à savoir pendant l'étape 6 :
+    - LE COMPTEUR (« 1/10 », « 5/10 », « 10/10 »…), en haut de la page :
+      c'est le plus important. Mets la POINTE de la souris bien sur
+      le nombre qui change, juste devant le « / ».
+          1/10    -> pointe sur le 1
+          5/10    -> pointe sur le 5
+          10/10   -> pointe ENTRE le 1 et le 0 du premier 10
+          20/20   -> pointe ENTRE le 2 et le 0 du premier 20
+                     (avec un abonnement, le compteur va jusqu'à 20)
+      Pas sur le « /10 », pas à côté du texte : sinon le programme
+      ne lit pas le compteur et n'ouvre jamais rien.
+    - Les boutons de l'écran d'ouverture (« Ouvrir 10 boosters »,
+      « Tout révéler »…) ne sont visibles que pendant une ouverture.
+      Si tu n'en as pas en cours, passe-les avec N.
+    - Si un pack n'est visible qu'en descendant dans la page (Sport,
+      Seinen, Mecha…) : remonte d'abord tout en haut avec la molette
+      de la souris, puis descends jusqu'au pack, mets la souris dessus
+      et appuie sur G. Le programme retient de combien tu es descendu.
+
+
+=====================================================================
+ 4. LANCER ET ARRÊTER
+=====================================================================
+  LANCER — dans le terminal, tape :
+      python kyara_booster.py
+  Laisse la fenêtre ouverte : le programme travaille tant qu'elle est
+  ouverte. Tu peux utiliser ton ordinateur à côté.
+
+  ARRÊTER — au choix :
+    - appuie sur Ctrl + C dans le terminal ;
+    - ou mets la souris tout en haut à gauche de l'écran ;
+    - ou ferme la fenêtre du terminal.
+
+  À SAVOIR
+    - Après un changement de réglage, arrête puis relance le programme.
+    - Le navigateur peut être caché derrière d'autres fenêtres : ça
+      marche quand même. Pour cliquer, il le passe devant une seconde,
+      puis remet tout comme avant.
+    - Le navigateur ne doit PAS être réduit dans la barre des tâches.
+    - Le popup « Tu es toujours là ? » est géré tout seul.
+    - S'il manque un réglage, le programme dit lequel au démarrage et
+      refuse de cliquer au hasard. Lance alors l'assistant
+      (python configurer_positions.py) : il te demandera ce qui manque.
+
+
+=====================================================================
+ 5. LE MENU DE L'ASSISTANT, CHOIX PAR CHOIX
+=====================================================================
+  Pour ouvrir le menu :  python configurer_positions.py
+  Tape le numéro voulu, puis Entrée. Entrée seule = quitter.
+  Chaque changement est enregistré tout de suite.
+  En haut du menu, il est écrit si le script est « prêt » ou combien
+  de réglages il manque. Après chaque choix, s'il manque quelque chose
+  (par exemple la position d'un pack que tu viens d'ajouter), il
+  propose de le régler tout de suite.
+
+  ---------------------------------------------------------------
+  1  TOUT CONFIGURER
+  ---------------------------------------------------------------
+     Les packs, puis tous les endroits où cliquer (voir partie 3).
+     C'est le bon choix la première fois.
+
+  ---------------------------------------------------------------
+  2  PACKS ET ROTATION — quels packs ouvrir, dans quel ordre
+  ---------------------------------------------------------------
+     Il affiche la liste numérotée des boosters du jeu. Tape les
+     numéros, séparés par des virgules. Ils tournent en boucle.
+       6          -> toujours Sport
+       6, 3       -> Sport, Isekai, Sport, Isekai…
+       3, 3, 6    -> deux Isekai, puis un Sport, etc.
+     Entrée sans rien écrire = ne rien changer.
+     Un nouveau booster sorti dans le jeu, absent de la liste : tape
+     son nom à la place du numéro. Il demande alors s'il faut un
+     double-clic pour l'ouvrir : réponds  n  (non) sauf si un clic ne
+     suffit pas.
+     Seule la position des packs choisis est demandée.
+
+  ---------------------------------------------------------------
+  3  POSITIONS — les endroits où cliquer
+  ---------------------------------------------------------------
+     Souris sur l'élément demandé, puis touche G (voir partie 3).
+     À refaire si les clics tombent à côté (navigateur déplacé,
+     zoom de la page changé…).
+
+  ---------------------------------------------------------------
+  4  CHASSE À UNE CARTE — ouvrir un pack jusqu'à avoir une carte
+  ---------------------------------------------------------------
+     Exemple : « ouvrir des Isekai jusqu'à avoir Rimuru, puis ouvrir
+     des Shonen Mix ».
+     Il te demande :
+       - la carte voulue (ex. Rimuru) ;
+       - le pack à ouvrir pour l'avoir (son numéro, ex. 3 pour Isekai) ;
+       - les packs à ouvrir ensuite (numéros ; Entrée = tes packs
+         habituels).
+     Après chaque ouverture, il lit les cartes obtenues. Quand la
+     carte est là, il passe tout seul aux packs suivants, et garde
+     une photo des cartes dans le dossier « chasses ».
+     Pour arrêter une chasse : tape  aucune  comme nom de carte.
+
+  ---------------------------------------------------------------
+  5  COMPTES — si tu as plusieurs comptes Kyara sur ce navigateur
+  ---------------------------------------------------------------
+     Le programme reconnaît quel compte est connecté grâce à la
+     couleur de sa photo de profil (en haut à droite), et chaque
+     compte peut avoir ses propres packs et son propre compteur
+     (abonné ou non).
+     Exemple :
+         compte « A »    -> Isekai et Shonen Mix, compteur /20 (abonné)
+         compte « Logo » -> Isekai jusqu'à Rimuru, puis Shonen Mix,
+                            compteur /10 (pas abonné)
+     Comment faire, pour CHAQUE compte :
+       1. Dans le navigateur, connecte-toi sur ce compte.
+       2. Dans le menu : 5, puis 1.
+       3. Mets la souris au milieu de la photo de profil, appuie sur G.
+       4. Donne un nom au compte, puis ses packs (et sa chasse si tu
+          veux), puis la capacité de son compteur :
+          0 = lue toute seule, 10 = pas abonné, 20 = abonné.
+     Puis change de compte dans le navigateur et recommence.
+     Ensuite, tu peux changer de compte quand tu veux, même pendant
+     que le programme tourne : il s'adapte tout seul.
+
+  ---------------------------------------------------------------
+  6  ÉTAPES — ce que fait le programme quand le compteur est plein
+  ---------------------------------------------------------------
+     Il affiche la liste numérotée des étapes. Pour la modifier :
+         a        ajouter une étape (il pose les questions)
+         s 3      supprimer l'étape n°3
+         t 3 5    attendre 5 secondes après l'étape n°3
+         d 3 1    déplacer l'étape n°3 en première place
+         Entrée   terminer
+     Exemple : si une page met du temps à charger, augmente
+     l'attente de l'étape juste avant (t …).
+
+  ---------------------------------------------------------------
+  7  RÉGLAGES — vitesse, pauses, nom…
+  ---------------------------------------------------------------
+     Par défaut, la souris GLISSE jusqu'au bouton en 0,5 à 0,9
+     seconde, comme une vraie main. Elle ne saute jamais d'un coup sur le bouton.
+     D'abord, il demande « Tout remettre par défaut d'un coup ? » :
+     o = oui (le nom et le navigateur ne changent pas), Entrée = non.
+     Ensuite, une question par réglage, avec sa valeur par défaut :
+         Entrée = garder    d = remettre la valeur par défaut
+     Exemple : pour une souris plus lente, à « durée d'un mouvement
+     de souris », tape  0,8 ; 1,2
+     Trop rapide (moins de 0,3 seconde) : refusé, la souris
+     sauterait presque d'un coup.
+
+     CAPACITÉ MAX DU COMPTEUR (abonnements)
+     Sans abonnement, le compteur va jusqu'à 10 (« 10/10 »). Un
+     abonnement qui ajoute +10 de capacité le fait aller jusqu'à 20
+     (« 20/20 »).
+         0   = automatique (par défaut, conseillé) : le programme lit
+               lui-même le nombre après le « / ». Marche aussi avec
+               plusieurs comptes, abonnés ou non.
+         10  = sans abonnement
+         20  = abonnement +10 de capacité
+     Avec plusieurs comptes, chaque compte peut avoir sa capacité à
+     lui (menu 5) ; ce réglage-ci sert pour les autres.
+     Le programme vérifie quand même le compteur : si tu as mis 10
+     mais que le compteur va jusqu'à 20 (ou l'inverse), il s'adapte
+     tout seul et l'écrit dans la fenêtre :
+         « Le compteur va jusqu'à 20, pas 10 comme réglé : le script
+           s'adapte (20 boosters). »
+     Dans tous les cas, il ouvre quand le compteur est plein.
+     À 20/20, le bouton du jeu n'ouvre que 10 boosters : le programme
+     fait donc l'ouverture DEUX fois d'affilée (20/20 -> 10/20 -> 0/20).
+     La 2e fois, il prend le pack suivant de ta rotation.
+     Le temps de recharge plus court d'un abonnement ne demande aucun
+     réglage : le programme regarde juste le compteur.
+
+  ---------------------------------------------------------------
+  8  REMISE À ZÉRO
+  ---------------------------------------------------------------
+     Ne touche qu'au script choisi au début. Deux possibilités :
+
+     1 = EFFACER LES POSITIONS SEULEMENT
+         Les endroits où cliquer sont effacés. Tout le reste est
+         gardé (packs, chasse, comptes, réglages).
+         Ensuite : menu 3 pour les replacer avec G.
+         Utile quand les clics tombent à côté.
+
+     2 = TOUT EFFACER
+         Tout redevient vide, comme un script neuf : aucun pack
+         choisi, plus de chasse, plus de comptes, positions effacées.
+         Seuls restent : le nom du script, son navigateur et son écran.
+         Utile quand tout est mélangé et qu'on veut repartir propre.
+
+     EXEMPLE avec le script de Brave :
+                           avant             après 1          après 2
+         navigateur        Brave             Brave            Brave
+         packs             Shonen Mix        Shonen Mix       aucun
+         chasse            Rimuru            Rimuru           aucune
+         positions         placées           effacées         effacées
+
+     Dans les deux cas, le script ne démarre plus tant que ce n'est
+     pas refait. Rouvre l'assistant : il voit ce qui manque et te le
+     redemande (positions seulement après 1 ; packs puis positions
+     après 2).
+
+     Il demande toujours de confirmer (o = oui). Entrée = annuler.
+     Regret ? L'ancienne version est gardée dans le dossier
+     « sauvegardes » (ex. kyara_booster_brave.py.bak) : remets ce
+     fichier à côté des scripts, à la place du script, et enlève
+     « .bak » à son nom.
+
+  ---------------------------------------------------------------
+  9  MODE LIBRE — juste voir une position
+  ---------------------------------------------------------------
+     Chaque appui sur G affiche où est la souris et le copie (Ctrl+V
+     pour le coller). Échap pour arrêter. Rarement utile.
+
+
+=====================================================================
+ 6. DEUX NAVIGATEURS EN MÊME TEMPS
+=====================================================================
+  Exemple : Opera ET Brave, chacun avec son compte Kyara.
+
+  1. Ouvre Kyara dans le deuxième navigateur.
+  2. Tape  python configurer_positions.py
+  3. Choisis « Nouveau script pour un autre navigateur ».
+  4. Donne-lui un nom, par exemple  brave
+  5. Le nouveau script est vide : l'assistant demande les packs, puis
+     les positions. Place-les avec G dans CE navigateur.
+  6. Ouvre DEUX terminaux, et lance un script dans chacun :
+         python kyara_booster.py           (le premier navigateur)
+         python kyara_booster_brave.py     (le deuxième)
+
+  Ils ne se gênent pas : quand les deux sont pleins, ils ouvrent
+  chacun leur tour (il n'y a qu'une souris).
+
+
+=====================================================================
+ 7. UN PROBLÈME ?
+=====================================================================
+  « 'python' n'est pas reconnu »
+      Python n'est pas installé, ou le terminal n'a pas été rouvert
+      après l'installation. Ferme et rouvre le terminal. Sinon,
+      essaie  py  à la place de  python.
+
+  « No module named … »
+      L'étape 2 de l'installation n'a pas été faite.
+
+  « Tesseract introuvable »
+      L'étape 3 de l'installation n'a pas été faite, ou Tesseract a
+      été installé dans un autre dossier que celui proposé.
+
+  « can't open file … »
+      Le terminal n'est pas ouvert dans ce dossier (voir partie 1).
+
+  « Il manque des réglages pour démarrer »
+      Le programme liste ce qui manque. Lance
+          python configurer_positions.py
+      et réponds oui à « On les règle maintenant ? ».
+
+  Les clics tombent à côté
+      Refais les positions : menu 3.
+
+  « Compteur introuvable » ou « La fenêtre a quitté son écran »
+      Le navigateur a été déplacé. Remets-le où il était, ou refais
+      les positions (menu 3).
+      Pour le compteur, mets bien la pointe de la souris sur le
+      nombre juste devant le « / » (le 5 de « 5/10 » ; pour « 10/10 »,
+      entre le 1 et le 0 du premier 10 ; pour « 20/20 », entre le 2
+      et le 0).
+
+  « Fenêtre … introuvable »
+      Le navigateur est fermé ou réduit dans la barre des tâches.
+      Ouvre-le en grand.
+
+  « En attente : … ouvre »
+      Normal : un autre script est en train d'utiliser la souris.
+
+  Ça reste bloqué « en attente » pour rien
+      Tape :  python coordination.py reset
+
+  Tout est mélangé, plus rien ne marche
+      Menu 8, puis 2 (tout effacer), puis rouvre l'assistant.
+
+
+=====================================================================
+ 8. POUR LES CURIEUX : RÉGLER À LA MAIN (pas nécessaire)
+=====================================================================
+  L'assistant fait tout ça pour toi. Cette partie sert seulement si tu
+  veux modifier le fichier toi-même.
+
+  LES FICHIERS DU DOSSIER
+    kyara_booster.py          le programme (ses réglages sont en haut)
+    kyara_booster_xxx.py      les copies pour d'autres navigateurs
+    configurer_positions.py   l'assistant
+    kyara_commun.py           outils internes (ne pas toucher)
+    coordination.py           partage de la souris (ne pas toucher)
+  Les fichiers créés par les scripts sont rangés dans 3 sous-dossiers
+  (créés tout seuls), pour ne pas encombrer le dossier des scripts :
+    debug\                    captures pour vérifier (compteur, popup,
+                              cartes obtenues). Une seule par sorte :
+                              elles sont remplacées à chaque fois, le
+                              dossier ne grossit pas. Supprimables.
+    chasses\                  chasse_<carte>.txt / .png : chasse
+                              terminée. Supprimer le fichier pour la
+                              recommencer.
+    sauvegardes\              *.bak : version d'avant de chaque script,
+                              gardée par l'assistant à chaque changement
+
+  MODIFIER LES RÉGLAGES
+    Ouvre kyara_booster.py avec le Bloc-notes. Les réglages sont tout
+    en haut, chacun expliqué. Change seulement les valeurs, en gardant
+    les guillemets, virgules et parenthèses. Puis relance le programme.
+
+    NOM               nom affiché (différent pour chaque script)
+    EXECUTABLE        programme du navigateur : "opera.exe",
+                      "brave.exe", "chrome.exe", "msedge.exe"…
+                      "" = pas encore détecté
+    ZONE_ECRAN        écran du navigateur (rempli par l'assistant)
+                      (0, 0, 0, 0) = pas encore détecté
+    COMPTEUR_CENTRE   endroit du compteur « x/10 » : sur le nombre
+                      juste devant le « / » (10/10 : entre le 1 et le 0)
+    CAPACITE_MAX      capacité du compteur : 0 = lue toute seule
+                      (conseillé), 10 = sans abonnement, 20 = abonnement
+    PACKS             tous les boosters du jeu et l'endroit où cliquer
+                      dessus. "molette": 3 = descendre de 3 crans avant.
+    ROTATION          packs à ouvrir, dans l'ordre, en boucle
+                      [] = aucun choisi
+    CHASSE            ex. {"carte": "Rimuru", "pack": "Isekai",
+                           "ensuite": ["Shonen Mix"]}
+                      None = pas de chasse
+    AVATAR, COMPTES   comptes reconnus à leur photo de profil
+                      (None = pas de comptes ; voir menu 5).
+                      "capacite": 20 = compteur de ce compte (facultatif)
+    SEQUENCE          les étapes de l'ouverture (voir menu 6)
+    INTERVALLE_POPUP  délai entre deux vérifications du popup
+    ARRET_COIN_ECRAN  True = souris en haut à gauche arrête tout
+    DUREE_MOUVEMENT   vitesse de la souris (min, max), en secondes
+                      défaut (0.5, 0.9) ; au moins 0.3
+
+    Une position s'écrit (x, y) : x = de gauche à droite, y = de haut
+    en bas. Sur un écran placé à gauche de l'écran principal, x est
+    négatif : c'est normal. (0, 0) = position pas encore placée.
+
+  RACCOURCIS DE L'ASSISTANT
+    python configurer_positions.py kyara_booster_brave.py
+        va directement à ce script, sans la question du choix
+    python configurer_positions.py reset
+        va directement à la remise à zéro
+    python configurer_positions.py libre
+        va directement au mode libre
+
+
+=====================================================================
+ SOUTIEN
+=====================================================================
+  Si ce programme te fait gagner du temps, tu peux me soutenir avec
+  un petit tip sur Ko-fi — merci ! ☕
+      https://ko-fi.com/nylen9
