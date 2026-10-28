@@ -60,6 +60,9 @@ SIMILARITE_MIN = 0.75
 # Plus strict pour reconnaître le chiffre affiché : un « 8 » ressemble à 0.78
 # au zéro barré, alors que deux glyphes identiques donnent 1.00.
 SIMILARITE_IDENTIQUE = 0.92
+# En dessous, deux premiers chiffres sont nettement différents (« 1 » et « 2 »
+# de 10/20 : 0.41 à 0.60 ; un même chiffre à l'écran : 0.82 et plus).
+SIMILARITE_DIFFERENTE = 0.7
 # Seuils essayés tour à tour (au-dessus d'Otsu) : un seuil plus strict
 # sépare les glyphes collés par l'anticrénelage (« 6/ » ou « 10 »).
 DURCISSEMENTS_SEUIL = (0, 30, 60)
@@ -687,7 +690,7 @@ def similarite(glyphe_a, glyphe_b):
     return meilleure
 
 
-def analyser_glyphes(image, capacite=None):
+def analyser_glyphes(image, capacite=None, lecture=""):
     """
     Renvoie (plein, description, numérateur).
 
@@ -697,6 +700,13 @@ def analyser_glyphes(image, capacite=None):
     Le numérateur (texte) est déduit des glyphes quand c'est possible : le
     dénominateur (« 10 », « 20 ») donne la forme de ses chiffres dans la police
     (le zéro barré, que l'OCR lit « 6 »), si la capacité est connue. Sinon None.
+
+    lecture : lecture OCR rapide (« 10/28 »). Avec 5 glyphes, le premier
+    chiffre suffit à trancher : le compteur ne dépassant pas sa capacité, un
+    nombre à deux chiffres qui commence comme elle ne peut être qu'elle (20/20).
+    Premier chiffre nettement différent et lecture valide pas pleine : pas
+    plein, sans les passes OCR (le 2e chiffre, lui, est trompeur : « 8 » et
+    zéro barré se ressemblent).
     """
     description = "glyphes illisibles"
     for durcissement in DURCISSEMENTS_SEUIL:
@@ -720,6 +730,13 @@ def analyser_glyphes(image, capacite=None):
         description = f"5 glyphes, similarités {sim_1:.2f}/{sim_0:.2f}"
         if sim_1 >= SIMILARITE_MIN and sim_0 >= SIMILARITE_MIN:
             return True, description, "10"
+        if (sim_1 < SIMILARITE_DIFFERENTE and re.fullmatch(r"\d{2}/\d{2}", lecture)
+                and not voix_plein(lecture)):
+            numerateur = lecture.split("/")[0]
+            if capacite and sim_0 >= SIMILARITE_IDENTIQUE:
+                # 2e chiffre identique à celui de la capacité (zéro barré lu « 6 »).
+                numerateur = numerateur[0] + str(capacite)[-1]
+            return False, f"{description}, lu {lecture}", numerateur
 
     return None, description, None
 
@@ -1021,7 +1038,7 @@ class DetecteurCompteur:
         self._apprendre_capacite(lu)
         total = self.capacite_lue or "?"
 
-        plein, detail, numerateur = analyser_glyphes(image, self.capacite_lue)
+        plein, detail, numerateur = analyser_glyphes(image, self.capacite_lue, lu)
         if plein:
             return True, f"{total}/{total}", detail
         if plein is False:

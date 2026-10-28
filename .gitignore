@@ -7,3 +7,4 @@ sauvegardes/
 *.bak
 __pycache__/
 *.pyc
+.language

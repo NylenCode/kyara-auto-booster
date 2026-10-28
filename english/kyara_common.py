@@ -60,6 +60,9 @@ MIN_SIMILARITY = 0.75
 # Stricter, to recognize the digit shown: an "8" scores 0.78 against the
 # slashed zero, while two identical glyphs give 1.00.
 IDENTICAL_SIMILARITY = 0.92
+# Below, two first digits are clearly different ("1" and "2" of 10/20:
+# 0.41 to 0.60; the same digit on screen: 0.82 and more).
+DIFFERENT_SIMILARITY = 0.7
 # Thresholds tried in turn (above Otsu): a stricter threshold separates
 # glyphs stuck together by anti-aliasing ("6/" or "10").
 THRESHOLD_HARDENINGS = (0, 30, 60)
@@ -687,7 +690,7 @@ def similarity(glyph_a, glyph_b):
     return best
 
 
-def analyze_glyphs(image, capacity=None):
+def analyze_glyphs(image, capacity=None, reading=""):
     """
     Returns (full, description, numerator).
 
@@ -697,6 +700,13 @@ def analyze_glyphs(image, capacity=None):
     The numerator (text) is deduced from the glyphs when possible: the
     denominator ("10", "20") gives the shape of its digits in the font (the
     slashed zero, which the OCR reads "6"), if the capacity is known. Else None.
+
+    reading: quick OCR reading ("10/28"). With 5 glyphs, the first digit is
+    enough to decide: as the counter never goes above its capacity, a
+    2-digit number starting like it can only be it (20/20).
+    First digit clearly different and valid reading not full: not full,
+    without the OCR passes (the 2nd digit is misleading: "8" and slashed
+    zero look alike).
     """
     description = "unreadable glyphs"
     for hardening in THRESHOLD_HARDENINGS:
@@ -720,6 +730,13 @@ def analyze_glyphs(image, capacity=None):
         description = f"5 glyphs, similarities {sim_1:.2f}/{sim_0:.2f}"
         if sim_1 >= MIN_SIMILARITY and sim_0 >= MIN_SIMILARITY:
             return True, description, "10"
+        if (sim_1 < DIFFERENT_SIMILARITY and re.fullmatch(r"\d{2}/\d{2}", reading)
+                and not full_vote(reading)):
+            numerator = reading.split("/")[0]
+            if capacity and sim_0 >= IDENTICAL_SIMILARITY:
+                # 2nd digit identical to the capacity's one (slashed zero read "6").
+                numerator = numerator[0] + str(capacity)[-1]
+            return False, f"{description}, read {reading}", numerator
 
     return None, description, None
 
@@ -1021,7 +1038,7 @@ class CounterDetector:
         self._learn_capacity(read)
         total = self.capacity_read or "?"
 
-        full, detail, numerator = analyze_glyphs(image, self.capacity_read)
+        full, detail, numerator = analyze_glyphs(image, self.capacity_read, read)
         if full:
             return True, f"{total}/{total}", detail
         if full is False:

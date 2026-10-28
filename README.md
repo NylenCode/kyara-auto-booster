@@ -49,18 +49,22 @@ winget install -e --id UB-Mannheim.TesseractOCR
 ## Quick start
 
 1. Open Kyara in your browser, on the boosters page.
-2. Open a terminal in the `english/` folder and run the assistant:
+2. Open a terminal in this folder and run:
 
    ```bash
-   python configure_positions.py
+   python configure.py
    ```
 
-   Choose your packs, then place each position with the mouse and the **G** key.
+   Choose your language (**2** = English; it is remembered). The assistant
+   opens: choose your packs, then place each position with the mouse and the
+   **G** key.
 3. Start the program:
 
    ```bash
-   python kyara_booster.py
+   python start.py
    ```
+
+   A second browser set up in the assistant (e.g. named `brave`): `python start.py brave`.
 
 To stop: `Ctrl + C`, or move the mouse to the top-left corner of the screen.
 
@@ -73,7 +77,8 @@ The full step-by-step guide (install, assistant menus, accounts, two browsers, t
 | [`english/`](english/) | English version + guide `README.txt` |
 | [`francais/`](francais/) | French version + guide `LISEZ-MOI.txt` |
 
-Both versions work the same way; pick the one in your language.
+Both versions work the same way. `configure.py` and `start.py` open the one in
+the language you chose; you can also run the scripts directly from their folder.
 
 ## Disclaimer
 
