@@ -55,8 +55,12 @@ CONTENTS
 =====================================================================
  2. INSTALL (only once per computer)
 =====================================================================
-  3 things must be installed. Type these commands one by one in the
-  terminal, waiting for each one to finish.
+  THE EASIEST: double-click install.bat (in the main folder of the
+  program, the one above this one). It installs the 3 things below by
+  itself, and keeps what is already installed.
+
+  BY HAND: 3 things must be installed. Type these commands one by one in
+  the terminal, waiting for each one to finish.
 
   If you are asked to accept terms: type  Y  then Enter.
   If Windows asks for permission: click Yes.

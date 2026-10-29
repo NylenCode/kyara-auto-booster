@@ -25,10 +25,19 @@ Ouvre tes boosters **Kyara** tout seul, dès que le compteur est plein.
 ## Il faut
 
 - **Windows** (10 ou 11)
-- **Python 3.10+**
-- **Tesseract OCR**, installé dans son dossier par défaut (`C:\Program Files\Tesseract-OCR`)
+- **Python 3.10+** et **Tesseract OCR** (dans son dossier par défaut `C:\Program Files\Tesseract-OCR`) : `install.bat` les installe pour toi.
 
-## Installation
+## Installation (une seule fois)
+
+1. Télécharge le programme : bouton vert **Code**, puis **Download ZIP**, et décompresse-le.
+2. Double-clique sur **`install.bat`**. Il installe ce qui manque (Python, les
+   outils Python, Tesseract) et garde ce qui est déjà là. Windows peut demander
+   l'autorisation : clique sur **Oui**.
+
+> Si Windows affiche « Windows a protégé votre ordinateur » : clique sur **Informations complémentaires**, puis **Exécuter quand même**.
+
+<details>
+<summary>À la main, dans un terminal</summary>
 
 ```bash
 winget install -e --id Python.Python.3.13
@@ -44,25 +53,17 @@ python -m pip install -r requirements.txt
 winget install -e --id UB-Mannheim.TesseractOCR
 ```
 
+</details>
+
 ## Démarrage rapide
 
 1. Ouvre Kyara dans ton navigateur, sur la page des boosters.
-2. Ouvre un terminal dans ce dossier et tape :
-
-   ```bash
-   python configure.py
-   ```
-
+2. Double-clique sur **`configure.bat`** (ou `python configure.py` dans un terminal).
    Choisis ta langue (**1** = Français ; elle est retenue). L'assistant
    s'ouvre : choisis tes packs, puis place chaque position avec la souris et
    la touche **G**.
-3. Lance le programme :
-
-   ```bash
-   python start.py
-   ```
-
-   Un 2e navigateur réglé dans l'assistant (ex. nommé `brave`) : `python start.py brave`.
+3. Double-clique sur **`run.bat`** pour lancer le programme (ou `python start.py`).
+   Un 2e navigateur réglé dans l'assistant (ex. nommé `brave`) : `run.bat brave` dans un terminal.
 
 Pour arrêter : `Ctrl + C`, ou mets la souris tout en haut à gauche de l'écran.
 

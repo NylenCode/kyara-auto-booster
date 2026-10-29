@@ -53,8 +53,12 @@ SOMMAIRE
 =====================================================================
  2. INSTALLER (une seule fois par ordinateur)
 =====================================================================
-  Il faut installer 3 choses. Tape ces commandes une par une dans le
-  terminal, en attendant la fin de chacune.
+  LE PLUS SIMPLE : double-clique sur install.bat (dans le dossier
+  principal du programme, celui au-dessus de celui-ci). Il installe
+  tout seul les 3 choses ci-dessous, et garde ce qui est déjà installé.
+
+  À LA MAIN : il faut installer 3 choses. Tape ces commandes une par
+  une dans le terminal, en attendant la fin de chacune.
 
   Si on te demande d'accepter des conditions : tape  Y  puis Entrée.
   Si Windows demande l'autorisation : clique sur Oui.
