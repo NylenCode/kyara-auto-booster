@@ -55,14 +55,13 @@ OCR_VERBEUX = False
 # Écart max (pixels) entre deux glyphes d'un même texte ; au-delà, c'est
 # l'indicateur coloré à gauche ou un autre élément d'interface.
 ECART_MAX_GLYPHES = 3
-# Ressemblance minimale (0 à 1) entre deux glyphes pour les dire identiques.
-SIMILARITE_MIN = 0.75
-# Plus strict pour reconnaître le chiffre affiché : un « 8 » ressemble à 0.78
-# au zéro barré, alors que deux glyphes identiques donnent 1.00.
-SIMILARITE_IDENTIQUE = 0.92
-# En dessous, deux premiers chiffres sont nettement différents (« 1 » et « 2 »
-# de 10/20 : 0.41 à 0.60 ; un même chiffre à l'écran : 0.82 et plus).
-SIMILARITE_DIFFERENTE = 0.7
+# Ressemblance (corrélation des niveaux de gris, -1 à 1) de deux glyphes,
+# mesurée sur les vraies captures : un même chiffre donne 0.87 à 1.00, deux
+# chiffres différents 0.74 au plus (« 1 » et « 2 » ; « 6 » et zéro barré :
+# 0.70). Au moins SIMILARITE_MEME : même chiffre. Moins de
+# SIMILARITE_DIFFERENTE : chiffres différents. Entre les deux : doute, OCR.
+SIMILARITE_MEME = 0.82
+SIMILARITE_DIFFERENTE = 0.78
 # Seuils essayés tour à tour (au-dessus d'Otsu) : un seuil plus strict
 # sépare les glyphes collés par l'anticrénelage (« 6/ » ou « 10 »).
 DURCISSEMENTS_SEUIL = (0, 30, 60)
@@ -524,13 +523,15 @@ def seuil_otsu(image_grise):
 # ============================================================
 # GLYPHES
 # ============================================================
-def segmenter_glyphes(image, durcissement=0, avec_position=False):
+def segmenter_glyphes(image, durcissement=0, avec_position=False, avec_boites=False):
     """
     Découpe le texte du compteur en glyphes (matrices de booléens).
     Renvoie None si le découpage n'est pas net.
 
     durcissement : seuil plus strict que celui d'Otsu, pour effacer les
     pixels de demi-teinte qui collent deux glyphes voisins.
+    avec_position : renvoie aussi le cadre du texte (x0, x1, y0, y1).
+    avec_boites : renvoie aussi le cadre de chaque glyphe (x0, x1, y0, y1).
     """
     gris = ImageOps.grayscale(image)
     largeur, hauteur = gris.size
@@ -613,6 +614,8 @@ def segmenter_glyphes(image, durcissement=0, avec_position=False):
         hauts.append(lignes[0])
         bas.append(lignes[-1] + 1)
 
+    if avec_boites:
+        return glyphes, [(debut, fin, h, b) for (debut, fin), h, b in zip(groupe, hauts, bas)]
     if avec_position:
         return glyphes, (groupe[0][0], groupe[-1][1], min(hauts), max(bas))
     return glyphes
@@ -660,34 +663,28 @@ def localiser_compteur(image, taille):
     return xs[len(xs) // 2], ys[len(ys) // 2]
 
 
-def similarite(glyphe_a, glyphe_b):
+def similarite(gris, boite_a, boite_b, largeur, haut, bas):
     """
-    Recouvrement (0 à 1) de deux glyphes centrés l'un sur l'autre, en gardant
-    le meilleur décalage à ±1 pixel près : le même caractère n'est pas rendu
-    pixel pour pixel pareil à deux positions de l'écran (anticrénelage).
+    Ressemblance (-1 à 1) de deux glyphes : corrélation de leurs niveaux de
+    gris, dans des fenêtres de même taille centrées sur chacun, en gardant le
+    meilleur décalage à ±1 pixel près (le même caractère n'est pas rendu
+    pixel pour pixel pareil à deux positions de l'écran). Les demi-teintes de
+    l'anticrénelage comptent : bien plus stable qu'en noir et blanc.
     """
-    def points(glyphe):
-        return {
-            (x, y)
-            for y, ligne in enumerate(glyphe)
-            for x, plein in enumerate(ligne)
-            if plein
-        }
+    def valeurs(boite, dx=0, dy=0):
+        gauche = (boite[0] + boite[1]) // 2 - largeur // 2 + dx
+        pixels = gris.crop((gauche, haut + dy, gauche + largeur, bas + dy)).tobytes()
+        moyenne = sum(pixels) / len(pixels)
+        centres = [p - moyenne for p in pixels]
+        norme = sum(c * c for c in centres) ** 0.5 or 1
+        return [c / norme for c in centres]
 
-    points_a, points_b = points(glyphe_a), points(glyphe_b)
-    if not points_a or not points_b:
-        return 0.0
-
-    base_x = (len(glyphe_a[0]) - len(glyphe_b[0])) // 2
-    base_y = (len(glyphe_a) - len(glyphe_b)) // 2
-    meilleure = 0.0
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            decale = {(x + base_x + dx, y + base_y + dy) for x, y in points_b}
-            meilleure = max(
-                meilleure, len(points_a & decale) / len(points_a | decale)
-            )
-    return meilleure
+    a = valeurs(boite_a)
+    return max(
+        sum(x * y for x, y in zip(a, valeurs(boite_b, dx, dy)))
+        for dx in (-1, 0, 1)
+        for dy in (-1, 0, 1)
+    )
 
 
 def analyser_glyphes(image, capacite=None, lecture=""):
@@ -697,46 +694,65 @@ def analyser_glyphes(image, capacite=None, lecture=""):
     plein vaut True/False si les glyphes permettent de conclure, None s'il faut
     passer à l'OCR. Plein : le nombre avant le « / » a les mêmes glyphes que
     celui d'après (10/10, 20/20), quelle que soit la capacité.
-    Le numérateur (texte) est déduit des glyphes quand c'est possible : le
-    dénominateur (« 10 », « 20 ») donne la forme de ses chiffres dans la police
-    (le zéro barré, que l'OCR lit « 6 »), si la capacité est connue. Sinon None.
+    Le premier chiffre suffit à trancher : le compteur ne dépassant pas sa
+    capacité, un nombre à deux chiffres qui commence comme elle ne peut être
+    qu'elle (20/20). Nettement différent : pas plein, sans OCR.
 
-    lecture : lecture OCR rapide (« 10/28 »). Avec 5 glyphes, le premier
-    chiffre suffit à trancher : le compteur ne dépassant pas sa capacité, un
-    nombre à deux chiffres qui commence comme elle ne peut être qu'elle (20/20).
-    Premier chiffre nettement différent et lecture valide pas pleine : pas
-    plein, sans les passes OCR (le 2e chiffre, lui, est trompeur : « 8 » et
-    zéro barré se ressemblent).
+    Numérateur (texte, None s'il reste un doute) : chaque chiffre est comparé
+    à ceux du dénominateur (« 10 », « 20 »), qui donnent leur forme dans la
+    police : le zéro barré, que l'OCR lit « 6 », est ainsi reconnu. Les autres
+    chiffres viennent de la lecture OCR rapide (lecture, ex. « 13/20 »).
     """
+    gris = ImageOps.autocontrast(ImageOps.grayscale(image))
+    if capacite:
+        chiffres = str(capacite)
+    else:
+        m = re.search(r"/(\d{2})", lecture)
+        chiffres = nombre_lu(m[1]) if m else ""
+    lu = lecture.split("/")[0] if "/" in lecture else ""
+
     description = "glyphes illisibles"
     for durcissement in DURCISSEMENTS_SEUIL:
-        glyphes = segmenter_glyphes(image, durcissement)
-        if glyphes is None:
+        resultat = segmenter_glyphes(image, durcissement, avec_boites=True)
+        if resultat is None:
             continue
+        glyphes, boites = resultat
+        barre = len(glyphes) - 3
+        if not est_barre_oblique(glyphes[barre]):
+            continue
+        largeur = max(fin - debut for debut, fin, _, _ in boites) + 2
+        haut, bas = min(b[2] for b in boites) - 1, max(b[3] for b in boites) + 1
 
-        if len(glyphes) == 4:
+        def sim(i, j):
+            return similarite(gris, boites[i], boites[j], largeur, haut, bas)
+
+        # Chaque chiffre avant le « / » : celui du dénominateur auquel il est
+        # identique, sinon celui de l'OCR (s'il n'est pas un chiffre écarté).
+        numerateur = ""
+        for k in range(barre):
+            ressemblances = [sim(k, barre + 1 + j) for j in range(2)]
+            identiques = [j for j, s in enumerate(ressemblances) if s >= SIMILARITE_MEME]
+            if identiques and len(chiffres) == 2:
+                numerateur += chiffres[identiques[0]]
+            elif len(lu) == barre and not any(
+                    len(chiffres) == 2 and lu[k] == chiffres[j] and s < SIMILARITE_DIFFERENTE
+                    for j, s in enumerate(ressemblances)):
+                numerateur += lu[k]
+            else:
+                numerateur = None
+                break
+
+        if barre == 1:
             # Un seul chiffre avant le « / » : jamais plein (capacité à 2 chiffres).
-            numerateur = None
-            chiffres = str(capacite) if capacite else ""
-            if len(chiffres) == 2:
-                if similarite(glyphes[0], glyphes[3]) >= SIMILARITE_IDENTIQUE:
-                    numerateur = chiffres[1]
-                elif similarite(glyphes[0], glyphes[2]) >= SIMILARITE_IDENTIQUE:
-                    numerateur = chiffres[0]
-            return False, f"4 glyphes (x/{capacite or '?'})", numerateur
+            return False, f"4 glyphes (x/{chiffres or '?'})", numerateur
 
-        sim_1 = similarite(glyphes[0], glyphes[3])
-        sim_0 = similarite(glyphes[1], glyphes[4])
+        sim_1, sim_0 = sim(0, 3), sim(1, 4)
         description = f"5 glyphes, similarités {sim_1:.2f}/{sim_0:.2f}"
-        if sim_1 >= SIMILARITE_MIN and sim_0 >= SIMILARITE_MIN:
-            return True, description, "10"
-        if (sim_1 < SIMILARITE_DIFFERENTE and re.fullmatch(r"\d{2}/\d{2}", lecture)
-                and not voix_plein(lecture)):
-            numerateur = lecture.split("/")[0]
-            if capacite and sim_0 >= SIMILARITE_IDENTIQUE:
-                # 2e chiffre identique à celui de la capacité (zéro barré lu « 6 »).
-                numerateur = numerateur[0] + str(capacite)[-1]
-            return False, f"{description}, lu {lecture}", numerateur
+        if sim_1 >= SIMILARITE_MEME and sim_0 >= SIMILARITE_MEME:
+            return True, description, chiffres or None
+        if sim_1 < SIMILARITE_DIFFERENTE:
+            return False, description, numerateur
+        return None, description, None
 
     return None, description, None
 
@@ -851,8 +867,23 @@ class DetecteurCompteur:
         )
         return True
 
+    @staticmethod
+    def _recadrer(image):
+        """
+        Garde le texte du compteur, sans l'indicateur coloré à gauche ni le
+        trait à droite, que l'OCR lisait comme un chiffre (« 16/206 »).
+        """
+        for durcissement in DURCISSEMENTS_SEUIL:
+            resultat = segmenter_glyphes(image, durcissement, avec_position=True)
+            if resultat is not None:
+                x0, x1, y0, y1 = resultat[1]
+                marge = 4
+                return image.crop((max(0, x0 - marge), max(0, y0 - marge),
+                                   min(image.width, x1 + marge), min(image.height, y1 + marge)))
+        return image
+
     def _preparer(self, image):
-        gris = ImageOps.grayscale(image)
+        gris = ImageOps.grayscale(self._recadrer(image))
         gris = ImageOps.autocontrast(gris, cutoff=1)
         gris = gris.resize(
             (gris.width * 5, gris.height * 5), Image.Resampling.LANCZOS

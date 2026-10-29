@@ -55,14 +55,13 @@ VERBOSE_OCR = False
 # Max gap (pixels) between two glyphs of the same text; beyond that, it is
 # the colored indicator on the left or another interface element.
 MAX_GLYPH_GAP = 3
-# Minimum likeness (0 to 1) between two glyphs to call them identical.
-MIN_SIMILARITY = 0.75
-# Stricter, to recognize the digit shown: an "8" scores 0.78 against the
-# slashed zero, while two identical glyphs give 1.00.
-IDENTICAL_SIMILARITY = 0.92
-# Below, two first digits are clearly different ("1" and "2" of 10/20:
-# 0.41 to 0.60; the same digit on screen: 0.82 and more).
-DIFFERENT_SIMILARITY = 0.7
+# Likeness (correlation of the gray levels, -1 to 1) of two glyphs, measured
+# on real captures: the same digit gives 0.87 to 1.00, two different digits
+# 0.74 at most ("1" and "2"; "6" and slashed zero: 0.70). At least
+# SAME_SIMILARITY: same digit. Less than DIFFERENT_SIMILARITY: different
+# digits. In between: doubt, OCR.
+SAME_SIMILARITY = 0.82
+DIFFERENT_SIMILARITY = 0.78
 # Thresholds tried in turn (above Otsu): a stricter threshold separates
 # glyphs stuck together by anti-aliasing ("6/" or "10").
 THRESHOLD_HARDENINGS = (0, 30, 60)
@@ -524,13 +523,15 @@ def otsu_threshold(gray_image):
 # ============================================================
 # GLYPHS
 # ============================================================
-def split_glyphs(image, hardening=0, with_position=False):
+def split_glyphs(image, hardening=0, with_position=False, with_boxes=False):
     """
     Cuts the counter text into glyphs (boolean matrices).
     Returns None if the cut is not clean.
 
     hardening: threshold stricter than Otsu's, to erase the half-tone
     pixels that stick two neighboring glyphs together.
+    with_position: also returns the frame of the text (x0, x1, y0, y1).
+    with_boxes: also returns the frame of each glyph (x0, x1, y0, y1).
     """
     gray = ImageOps.grayscale(image)
     width, height = gray.size
@@ -613,6 +614,8 @@ def split_glyphs(image, hardening=0, with_position=False):
         tops.append(lines[0])
         bottoms.append(lines[-1] + 1)
 
+    if with_boxes:
+        return glyphs, [(start, end, top, bottom) for (start, end), top, bottom in zip(group, tops, bottoms)]
     if with_position:
         return glyphs, (group[0][0], group[-1][1], min(tops), max(bottoms))
     return glyphs
@@ -660,34 +663,28 @@ def locate_counter(image, size):
     return xs[len(xs) // 2], ys[len(ys) // 2]
 
 
-def similarity(glyph_a, glyph_b):
+def similarity(gray, box_a, box_b, width, top, bottom):
     """
-    Overlap (0 to 1) of two glyphs centered on each other, keeping the best
-    offset within ±1 pixel: the same character is not drawn pixel for pixel
-    the same at two places on the screen (anti-aliasing).
+    Likeness (-1 to 1) of two glyphs: correlation of their gray levels, in
+    windows of the same size centered on each one, keeping the best shift
+    within ±1 pixel (the same character is not drawn pixel for pixel the same
+    at two positions of the screen). The half-tones of the anti-aliasing
+    count: much steadier than in black and white.
     """
-    def points(glyph):
-        return {
-            (x, y)
-            for y, line in enumerate(glyph)
-            for x, filled in enumerate(line)
-            if filled
-        }
+    def values(box, dx=0, dy=0):
+        left = (box[0] + box[1]) // 2 - width // 2 + dx
+        pixels = gray.crop((left, top + dy, left + width, bottom + dy)).tobytes()
+        mean = sum(pixels) / len(pixels)
+        centered = [p - mean for p in pixels]
+        norm = sum(c * c for c in centered) ** 0.5 or 1
+        return [c / norm for c in centered]
 
-    points_a, points_b = points(glyph_a), points(glyph_b)
-    if not points_a or not points_b:
-        return 0.0
-
-    base_x = (len(glyph_a[0]) - len(glyph_b[0])) // 2
-    base_y = (len(glyph_a) - len(glyph_b)) // 2
-    best = 0.0
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            shifted = {(x + base_x + dx, y + base_y + dy) for x, y in points_b}
-            best = max(
-                best, len(points_a & shifted) / len(points_a | shifted)
-            )
-    return best
+    a = values(box_a)
+    return max(
+        sum(x * y for x, y in zip(a, values(box_b, dx, dy)))
+        for dx in (-1, 0, 1)
+        for dy in (-1, 0, 1)
+    )
 
 
 def analyze_glyphs(image, capacity=None, reading=""):
@@ -697,46 +694,65 @@ def analyze_glyphs(image, capacity=None, reading=""):
     full is True/False if the glyphs allow a conclusion, None if the OCR is
     needed. Full: the number before the "/" has the same glyphs as the one
     after (10/10, 20/20), whatever the capacity.
-    The numerator (text) is deduced from the glyphs when possible: the
-    denominator ("10", "20") gives the shape of its digits in the font (the
-    slashed zero, which the OCR reads "6"), if the capacity is known. Else None.
+    The first digit is enough to decide: as the counter never goes above its
+    capacity, a 2-digit number starting like it can only be it (20/20).
+    Clearly different: not full, without OCR.
 
-    reading: quick OCR reading ("10/28"). With 5 glyphs, the first digit is
-    enough to decide: as the counter never goes above its capacity, a
-    2-digit number starting like it can only be it (20/20).
-    First digit clearly different and valid reading not full: not full,
-    without the OCR passes (the 2nd digit is misleading: "8" and slashed
-    zero look alike).
+    Numerator (text, None if a doubt remains): each digit is compared with
+    those of the denominator ("10", "20"), which give their shape in the
+    font: the slashed zero, which the OCR reads "6", is recognized this way.
+    The other digits come from the quick OCR reading (reading, e.g. "13/20").
     """
+    gray = ImageOps.autocontrast(ImageOps.grayscale(image))
+    if capacity:
+        digits = str(capacity)
+    else:
+        m = re.search(r"/(\d{2})", reading)
+        digits = number_read(m[1]) if m else ""
+    read = reading.split("/")[0] if "/" in reading else ""
+
     description = "unreadable glyphs"
     for hardening in THRESHOLD_HARDENINGS:
-        glyphs = split_glyphs(image, hardening)
-        if glyphs is None:
+        result = split_glyphs(image, hardening, with_boxes=True)
+        if result is None:
             continue
+        glyphs, boxes = result
+        slash = len(glyphs) - 3
+        if not is_slash(glyphs[slash]):
+            continue
+        width = max(end - start for start, end, _, _ in boxes) + 2
+        top, bottom = min(b[2] for b in boxes) - 1, max(b[3] for b in boxes) + 1
 
-        if len(glyphs) == 4:
+        def sim(i, j):
+            return similarity(gray, boxes[i], boxes[j], width, top, bottom)
+
+        # Each digit before the "/": the denominator one it is identical to,
+        # else the OCR one (if it is not a digit ruled out).
+        numerator = ""
+        for k in range(slash):
+            likenesses = [sim(k, slash + 1 + j) for j in range(2)]
+            identical = [j for j, s in enumerate(likenesses) if s >= SAME_SIMILARITY]
+            if identical and len(digits) == 2:
+                numerator += digits[identical[0]]
+            elif len(read) == slash and not any(
+                    len(digits) == 2 and read[k] == digits[j] and s < DIFFERENT_SIMILARITY
+                    for j, s in enumerate(likenesses)):
+                numerator += read[k]
+            else:
+                numerator = None
+                break
+
+        if slash == 1:
             # A single digit before the "/": never full (2-digit capacity).
-            numerator = None
-            digits = str(capacity) if capacity else ""
-            if len(digits) == 2:
-                if similarity(glyphs[0], glyphs[3]) >= IDENTICAL_SIMILARITY:
-                    numerator = digits[1]
-                elif similarity(glyphs[0], glyphs[2]) >= IDENTICAL_SIMILARITY:
-                    numerator = digits[0]
-            return False, f"4 glyphs (x/{capacity or '?'})", numerator
+            return False, f"4 glyphs (x/{digits or '?'})", numerator
 
-        sim_1 = similarity(glyphs[0], glyphs[3])
-        sim_0 = similarity(glyphs[1], glyphs[4])
+        sim_1, sim_0 = sim(0, 3), sim(1, 4)
         description = f"5 glyphs, similarities {sim_1:.2f}/{sim_0:.2f}"
-        if sim_1 >= MIN_SIMILARITY and sim_0 >= MIN_SIMILARITY:
-            return True, description, "10"
-        if (sim_1 < DIFFERENT_SIMILARITY and re.fullmatch(r"\d{2}/\d{2}", reading)
-                and not full_vote(reading)):
-            numerator = reading.split("/")[0]
-            if capacity and sim_0 >= IDENTICAL_SIMILARITY:
-                # 2nd digit identical to the capacity's one (slashed zero read "6").
-                numerator = numerator[0] + str(capacity)[-1]
-            return False, f"{description}, read {reading}", numerator
+        if sim_1 >= SAME_SIMILARITY and sim_0 >= SAME_SIMILARITY:
+            return True, description, digits or None
+        if sim_1 < DIFFERENT_SIMILARITY:
+            return False, description, numerator
+        return None, description, None
 
     return None, description, None
 
@@ -851,8 +867,23 @@ class CounterDetector:
         )
         return True
 
+    @staticmethod
+    def _crop(image):
+        """
+        Keeps the counter text, without the colored indicator on the left nor
+        the line on the right, which the OCR read as a digit ("16/206").
+        """
+        for hardening in THRESHOLD_HARDENINGS:
+            result = split_glyphs(image, hardening, with_position=True)
+            if result is not None:
+                x0, x1, y0, y1 = result[1]
+                margin = 4
+                return image.crop((max(0, x0 - margin), max(0, y0 - margin),
+                                   min(image.width, x1 + margin), min(image.height, y1 + margin)))
+        return image
+
     def _prepare(self, image):
-        gray = ImageOps.grayscale(image)
+        gray = ImageOps.grayscale(self._crop(image))
         gray = ImageOps.autocontrast(gray, cutoff=1)
         gray = gray.resize(
             (gray.width * 5, gray.height * 5), Image.Resampling.LANCZOS
