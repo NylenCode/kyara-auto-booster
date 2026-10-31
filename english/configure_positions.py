@@ -888,17 +888,21 @@ def describe_account(setting):
     return text
 
 
+# Accepted capacities: 0 (read by itself), 10, 15, 20, 25…
+CAPACITIES = (0, *range(10, 55, 5))
+
+
 def ask_capacity(default):
     """Counter capacity of an account: 0 (read by itself), 10, 20…"""
-    print("Counter of this account: 0 = read by itself (recommended), 10 = no subscription,")
-    print("20 = subscription with +10 capacity (\"x/20\" counter).")
+    print("Counter of this account: 0 = read by itself (recommended), else its maximum:")
+    print("10 = no subscription, 20 = subscription, +5 with an event bonus (15, 25).")
     while True:
         reply = ask(f"Counter capacity for this account (Enter = {default}): ")
         if not reply:
             return default
-        if reply.isdigit() and int(reply) in (0, 10, 20, 30, 40, 50):
+        if reply.isdigit() and int(reply) in CAPACITIES:
             return int(reply)
-        print("Answer 0, 10 or 20.")
+        print("Answer 0, or a maximum: 10, 15, 20, 25…")
 
 
 def add_account(text):
@@ -1110,8 +1114,8 @@ SETTINGS = (
     ("STABLE_READINGS", "\"full counter\" readings in a row before opening", 2),
     ("MAX_CAPACITY", "max capacity of the booster counter: 0 = read by itself on "
                      "the counter (recommended), 10 = no subscription, 20 = subscription "
-                     "with +10 capacity (for the accounts without their own setting: "
-                     "Accounts menu)", 0),
+                     "with +10 capacity, +5 with an event bonus (15, 25) (for the "
+                     "accounts without their own setting: Accounts menu)", 0),
     ("PAUSE_AFTER_OPENING", "pause after an opening, in seconds", 5),
     ("POPUP_INTERVAL", "maximum delay between two checks of the popup, in seconds", 10),
     ("MOVE_DURATION", "duration of a mouse movement in seconds, min and max: the mouse "
@@ -1157,8 +1161,8 @@ def convert(reply, current, name):
         raise ValueError("whole number expected")
     if value == 0 and name == "STABLE_READINGS":
         raise ValueError("at least 1")
-    if name == "MAX_CAPACITY" and value not in (0, 10, 20, 30, 40, 50):
-        raise ValueError("0 (automatic), 10, 20, 30, 40 or 50")
+    if name == "MAX_CAPACITY" and value not in CAPACITIES:
+        raise ValueError("0 (automatic), or 10, 15, 20, 25… up to 50")
     return value
 
 

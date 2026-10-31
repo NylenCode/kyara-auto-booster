@@ -176,6 +176,10 @@ IMAGE_REVELATION = DOSSIER_DEBUG / f"debug_{NOM}_revelation.png"
 DEMI_LARGEUR_BANDE, HAUT_BANDE, HAUTEUR_BANDE = 500, 31, 90
 SEUIL_TEXTE_BOUTON = 160
 ATTENTE_MAX_BOUTON = 8
+# Après le clic sur un pack, le compteur doit disparaître (page du pack) :
+# temps laissé à la page pour changer, et nombre de clics essayés.
+ATTENTE_PAGE_PACK = 4
+ESSAIS_CLIC_PACK = 3
 # Avant de lire les cartes, attente que l'écran ne bouge plus (animation).
 ATTENTE_MAX_GRILLE = 6
 
@@ -540,6 +544,26 @@ def choisir_pack():
     return suite[position % len(suite)], chasse, compte
 
 
+def ouvrir_page_pack(pack, attente):
+    """Clique sur le pack jusqu'à quitter l'accueil. False si la page ne change pas."""
+    reglage = PACKS[pack]
+    for essai in range(ESSAIS_CLIC_PACK):
+        if essai:
+            print(f"{PREFIXE} La page du pack ne s'est pas ouverte : nouveau clic.")
+        if reglage.get("molette", 0):
+            defiler(NOM, reglage["position"], reglage["molette"], pack)
+        cliquer(NOM, reglage["position"], pack, attente,
+                double=reglage.get("double_clic", False))
+        debut = time.monotonic()
+        while detecteur_compteur and detecteur_compteur.compteur_visible():
+            if time.monotonic() - debut >= ATTENTE_PAGE_PACK:
+                break
+            time.sleep(0.5)
+        else:
+            return True
+    return False
+
+
 def ouvrir_boosters():
     pack, chasse, compte = choisir_pack()
     print(f"{PREFIXE} Début de l'ouverture : {pack}"
@@ -548,11 +572,9 @@ def ouvrir_boosters():
     for etape in SEQUENCE:
         action = etape[0]
         if action == "pack":
-            reglage = PACKS[pack]
-            if reglage.get("molette", 0):
-                defiler(NOM, reglage["position"], reglage["molette"], pack)
-            cliquer(NOM, reglage["position"], pack, etape[1],
-                    double=reglage.get("double_clic", False))
+            if not ouvrir_page_pack(pack, etape[1]):
+                print(f"{PREFIXE} Page du pack jamais ouverte : ouverture annulée.")
+                return
         elif action in ("clic", "double_clic"):
             _, description, position, attente = etape
             cliquer(NOM, position, description, attente, double=action == "double_clic")

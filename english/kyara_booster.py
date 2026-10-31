@@ -177,6 +177,10 @@ REVEAL_IMAGE = DEBUG_DIR / f"debug_{NAME}_reveal.png"
 BAND_HALF_WIDTH, BAND_TOP, BAND_HEIGHT = 500, 31, 90
 BUTTON_TEXT_THRESHOLD = 160
 MAX_BUTTON_WAIT = 8
+# After the click on a pack, the counter must disappear (pack page): time
+# left to the page to change, and number of clicks tried.
+PACK_PAGE_WAIT = 4
+PACK_CLICK_TRIES = 3
 # Before reading the cards, wait until the screen stops moving (animation).
 MAX_GRID_WAIT = 6
 
@@ -542,6 +546,26 @@ def choose_pack():
     return then[position % len(then)], hunt, account
 
 
+def open_pack_page(pack, wait):
+    """Clicks on the pack until the home page is left. False if the page does not change."""
+    setting = PACKS[pack]
+    for attempt in range(PACK_CLICK_TRIES):
+        if attempt:
+            print(f"{PREFIX} The pack page did not open: new click.")
+        if setting.get("scroll", 0):
+            scroll(NAME, setting["position"], setting["scroll"], pack)
+        click(NAME, setting["position"], pack, wait,
+              double=setting.get("double_click", False))
+        start = time.monotonic()
+        while counter_detector and counter_detector.counter_visible():
+            if time.monotonic() - start >= PACK_PAGE_WAIT:
+                break
+            time.sleep(0.5)
+        else:
+            return True
+    return False
+
+
 def open_boosters():
     pack, hunt, account = choose_pack()
     print(f"{PREFIX} Start of the opening: {pack}"
@@ -550,11 +574,9 @@ def open_boosters():
     for step in SEQUENCE:
         action = step[0]
         if action == "pack":
-            setting = PACKS[pack]
-            if setting.get("scroll", 0):
-                scroll(NAME, setting["position"], setting["scroll"], pack)
-            click(NAME, setting["position"], pack, step[1],
-                  double=setting.get("double_click", False))
+            if not open_pack_page(pack, step[1]):
+                print(f"{PREFIX} Pack page never opened: opening cancelled.")
+                return
         elif action in ("click", "double_click"):
             _, description, position, wait = step
             click(NAME, position, description, wait, double=action == "double_click")

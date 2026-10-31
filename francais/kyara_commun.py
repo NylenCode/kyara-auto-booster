@@ -73,8 +73,9 @@ DURCISSEMENTS_SEUIL = (0, 30, 60)
 # Sans barre (lue « 1 », « 7 » ou perdue), la lecture compte pour une demi-voix.
 MOTIF_LECTURE = re.compile(r"(\d{2})/(\d{2})")
 MOTIF_LECTURE_SANS_BARRE = re.compile(r"(\d{2})[17]?(\d{2})")
-# Capacités possibles, pour reconnaître le dénominateur lu (« 20 » de « 3/20 »).
-CAPACITES_POSSIBLES = (10, 20, 30, 40, 50)
+# Capacités possibles, pour reconnaître le dénominateur lu (« 20 » de « 3/20 ») :
+# 10, 20 avec un abonnement, 15 et 25 avec le bonus d'un événement…
+CAPACITES_POSSIBLES = tuple(range(10, 55, 5))
 CONFIG_OCR = "-c tessedit_char_whitelist=0123456789/"
 PSM_OCR = (7, 6)
 DECALAGES_SEUIL = (0, -30, 30)
@@ -693,10 +694,10 @@ def analyser_glyphes(image, capacite=None, lecture=""):
 
     plein vaut True/False si les glyphes permettent de conclure, None s'il faut
     passer à l'OCR. Plein : le nombre avant le « / » a les mêmes glyphes que
-    celui d'après (10/10, 20/20), quelle que soit la capacité.
-    Le premier chiffre suffit à trancher : le compteur ne dépassant pas sa
-    capacité, un nombre à deux chiffres qui commence comme elle ne peut être
-    qu'elle (20/20). Nettement différent : pas plein, sans OCR.
+    celui d'après (10/10, 25/25), quelle que soit la capacité. Un seul des deux
+    chiffres nettement différent : pas plein, sans OCR (20/25 ne diffère que
+    par le 2e chiffre, 15/25 que par le 1er). Si les glyphes disent plein mais
+    que la lecture OCR rapide lit un autre nombre, l'OCR complet tranche.
 
     Numérateur (texte, None s'il reste un doute) : chaque chiffre est comparé
     à ceux du dénominateur (« 10 », « 20 »), qui donnent leur forme dans la
@@ -748,10 +749,11 @@ def analyser_glyphes(image, capacite=None, lecture=""):
 
         sim_1, sim_0 = sim(0, 3), sim(1, 4)
         description = f"5 glyphes, similarités {sim_1:.2f}/{sim_0:.2f}"
-        if sim_1 >= SIMILARITE_MEME and sim_0 >= SIMILARITE_MEME:
-            return True, description, chiffres or None
-        if sim_1 < SIMILARITE_DIFFERENTE:
+        if sim_1 < SIMILARITE_DIFFERENTE or sim_0 < SIMILARITE_DIFFERENTE:
             return False, description, numerateur
+        lu_ailleurs = re.fullmatch(r"\d{2}/\d{2}", lecture) and not voix_plein(lecture)
+        if sim_1 >= SIMILARITE_MEME and sim_0 >= SIMILARITE_MEME and not lu_ailleurs:
+            return True, description, chiffres or None
         return None, description, None
 
     return None, description, None
@@ -820,6 +822,15 @@ class DetecteurCompteur:
         """À appeler après une ouverture : le compteur doit être relu à neuf."""
         self._signature = None
         self.consecutifs = 0
+
+    def compteur_visible(self):
+        """Vrai si le compteur est à sa place : encore sur la page d'accueil."""
+        image = capturer_zone(self.region)
+        for durcissement in DURCISSEMENTS_SEUIL:
+            glyphes = segmenter_glyphes(image, durcissement)
+            if glyphes is not None and est_barre_oblique(glyphes[-3]):
+                return True
+        return False
 
     def changer_capacite(self, capacite):
         """Capacité du compte connecté (0 = lue à l'écran) : compteur relu à neuf."""
@@ -1036,8 +1047,8 @@ class DetecteurCompteur:
     def _apprendre_capacite(self, lu):
         """
         Capacité lue à l'écran : « 3/20 » -> 20. Toujours vérifiée : si elle
-        diffère de la capacité réglée (deux lectures d'affilée, pour ne pas
-        suivre une fausse lecture), le script s'adapte au compteur.
+        diffère de celle déjà connue, réglée ou lue (deux lectures d'affilée,
+        pour ne pas suivre une fausse lecture), le script s'adapte au compteur.
         """
         m = re.search(r"/(\d{2})", lu)
         if not m:
@@ -1046,10 +1057,10 @@ class DetecteurCompteur:
         if capacite not in CAPACITES_POSSIBLES or capacite == self.capacite_lue:
             self._capacite_a_confirmer = None
             return
+        if self.capacite_lue and self._capacite_a_confirmer != capacite:
+            self._capacite_a_confirmer = capacite
+            return
         if self.capacite:
-            if self._capacite_a_confirmer != capacite:
-                self._capacite_a_confirmer = capacite
-                return
             print(f"{self.prefixe} Le compteur va jusqu'à {capacite}, pas {self.capacite_lue} "
                   f"comme réglé : le script s'adapte ({capacite} boosters).")
         else:
@@ -1358,9 +1369,9 @@ def defiler(navigateur, position, crans, description=""):
 # BOUCLE PRINCIPALE
 # ============================================================
 # Nombre de boosters ouverts par le bouton du jeu, et pause entre deux
-# ouvertures d'affilée (compteur à 20 : deux ouvertures).
+# ouvertures d'affilée (compteur à 20 ou 25 : deux ouvertures).
 BOOSTERS_PAR_OUVERTURE = 10
-PAUSE_ENTRE_OUVERTURES = 2
+PAUSE_ENTRE_OUVERTURES = 4
 
 def boucle_principale(navigateur, detecteur, popup, sequence, intervalle=2,
                       pause_apres_ouverture=5, a_chaque_tour=None):

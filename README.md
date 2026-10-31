@@ -11,9 +11,9 @@ Opens your **Kyara** boosters automatically, as soon as the counter is full.
 ## What it does
 
 - Watches the booster counter at the top of the page (`3/10`, `7/10`…).
-- When it is full (`10/10`, or `20/20` with a subscription), it clicks to open the boosters, then waits again.
-- At `20/20` it opens **twice in a row**, because the game button only opens 10 at a time.
-- **Reads the counter capacity by itself** (10 or 20) and adapts if it changes.
+- When it is full (`10/10`, `20/20` with a subscription, `15/15` or `25/25` with an event bonus), it clicks to open the boosters, then waits again.
+- At `20/20` or `25/25` it opens **twice in a row**, because the game button only opens 10 at a time.
+- **Reads the counter capacity by itself** (10, 15, 20, 25…) and adapts if it changes.
 - **Rotation**: opens your chosen packs in turn (e.g. Isekai, Shonen Mix, Isekai…).
 - **Card hunt**: opens a pack until a given card drops, then switches to other packs.
 - **Several accounts**: recognizes the logged-in account by its profile picture; each account can have its own packs and its own counter capacity.

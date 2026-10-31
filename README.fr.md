@@ -11,9 +11,9 @@ Ouvre tes boosters **Kyara** tout seul, dès que le compteur est plein.
 ## Ce qu'il fait
 
 - Surveille le compteur de boosters en haut de la page (`3/10`, `7/10`…).
-- Quand il est plein (`10/10`, ou `20/20` avec un abonnement), il clique pour ouvrir les boosters, puis attend à nouveau.
-- À `20/20`, il ouvre **deux fois de suite**, car le bouton du jeu n'en ouvre que 10 à la fois.
-- **Lit tout seul la capacité du compteur** (10 ou 20) et s'adapte si elle change.
+- Quand il est plein (`10/10`, `20/20` avec un abonnement, `15/15` ou `25/25` avec un bonus d'événement), il clique pour ouvrir les boosters, puis attend à nouveau.
+- À `20/20` ou `25/25`, il ouvre **deux fois de suite**, car le bouton du jeu n'en ouvre que 10 à la fois.
+- **Lit tout seul la capacité du compteur** (10, 15, 20, 25…) et s'adapte si elle change.
 - **Rotation** : ouvre tes packs choisis à tour de rôle (ex. Isekai, Shonen Mix, Isekai…).
 - **Chasse à la carte** : ouvre un pack jusqu'à obtenir une carte, puis passe à d'autres packs.
 - **Plusieurs comptes** : reconnaît le compte connecté à sa photo de profil ; chaque compte peut avoir ses packs et la capacité de son compteur.

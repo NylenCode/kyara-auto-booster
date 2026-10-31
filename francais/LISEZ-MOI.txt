@@ -276,12 +276,14 @@ SOMMAIRE
      CAPACITÉ MAX DU COMPTEUR (abonnements)
      Sans abonnement, le compteur va jusqu'à 10 (« 10/10 »). Un
      abonnement qui ajoute +10 de capacité le fait aller jusqu'à 20
-     (« 20/20 »).
+     (« 20/20 »). Un événement peut ajouter encore +5 (éclair à côté du
+     compteur) : 15/15 ou 25/25.
          0   = automatique (par défaut, conseillé) : le programme lit
                lui-même le nombre après le « / ». Marche aussi avec
                plusieurs comptes, abonnés ou non.
          10  = sans abonnement
          20  = abonnement +10 de capacité
+         15, 25 = les mêmes, avec le bonus +5 d'un événement
      Avec plusieurs comptes, chaque compte peut avoir sa capacité à
      lui (menu 5) ; ce réglage-ci sert pour les autres.
      Le programme vérifie quand même le compteur : si tu as mis 10
@@ -291,7 +293,8 @@ SOMMAIRE
            s'adapte (20 boosters). »
      Dans tous les cas, il ouvre quand le compteur est plein.
      À 20/20, le bouton du jeu n'ouvre que 10 boosters : le programme
-     fait donc l'ouverture DEUX fois d'affilée (20/20 -> 10/20 -> 0/20).
+     fait donc l'ouverture DEUX fois d'affilée (20/20 -> 10/20 -> 0/20,
+     25/25 -> 15/25 -> 5/25). À 15/15, une seule fois (15/15 -> 5/15).
      La 2e fois, il prend le pack suivant de ta rotation.
      Le temps de recharge plus court d'un abonnement ne demande aucun
      réglage : le programme regarde juste le compteur.
@@ -390,6 +393,10 @@ SOMMAIRE
       nombre juste devant le « / » (le 5 de « 5/10 » ; pour « 10/10 »,
       entre le 1 et le 0 du premier 10 ; pour « 20/20 », entre le 2
       et le 0).
+
+  « Page du pack jamais ouverte : ouverture annulée »
+      Le clic sur le pack n'a rien changé, même après 3 essais. Le pack
+      a peut-être bougé sur la page : refais sa position (menu 3).
 
   « Fenêtre … introuvable »
       Le navigateur est fermé ou réduit dans la barre des tâches.

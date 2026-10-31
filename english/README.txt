@@ -277,12 +277,14 @@ CONTENTS
      MAX CAPACITY OF THE COUNTER (subscriptions)
      Without a subscription, the counter goes up to 10 ("10/10"). A
      subscription that adds +10 capacity makes it go up to 20
-     ("20/20").
+     ("20/20"). An event can add +5 more (lightning next to the
+     counter): 15/15 or 25/25.
          0   = automatic (default, recommended): the program reads
                the number after the "/" itself. Also works with
                several accounts, subscribed or not.
          10  = no subscription
          20  = subscription with +10 capacity
+         15, 25 = the same, with the +5 bonus of an event
      With several accounts, each account can have its own capacity
      (menu 5); this setting is used for the others.
      The program still checks the counter: if you set 10 but the
@@ -292,7 +294,8 @@ CONTENTS
           adapts (20 boosters)."
      In every case, it opens when the counter is full.
      At 20/20, the game button only opens 10 boosters: the program
-     therefore does the opening TWICE in a row (20/20 -> 10/20 -> 0/20).
+     therefore does the opening TWICE in a row (20/20 -> 10/20 -> 0/20,
+     25/25 -> 15/25 -> 5/25). At 15/15, only once (15/15 -> 5/15).
      The 2nd time, it takes the next pack of your rotation.
      The shorter recharge time of a subscription needs no setting:
      the program just watches the counter.
@@ -390,6 +393,10 @@ CONTENTS
       just before the "/" (the 5 of "5/10"; for "10/10", between the
       1 and the 0 of the first 10; for "20/20", between the 2 and
       the 0).
+
+  "Pack page never opened: opening cancelled"
+      The click on the pack changed nothing, even after 3 tries. The
+      pack may have moved on the page: place its position again (menu 3).
 
   "Window … not found"
       The browser is closed or minimized in the taskbar.

@@ -73,8 +73,9 @@ THRESHOLD_HARDENINGS = (0, 30, 60)
 # Without the slash (read "1", "7" or lost), the reading counts as half a vote.
 READING_PATTERN = re.compile(r"(\d{2})/(\d{2})")
 READING_PATTERN_NO_SLASH = re.compile(r"(\d{2})[17]?(\d{2})")
-# Possible capacities, to recognize the denominator read (the "20" of "3/20").
-POSSIBLE_CAPACITIES = (10, 20, 30, 40, 50)
+# Possible capacities, to recognize the denominator read (the "20" of "3/20"):
+# 10, 20 with a subscription, 15 and 25 with the bonus of an event…
+POSSIBLE_CAPACITIES = tuple(range(10, 55, 5))
 OCR_CONFIG = "-c tessedit_char_whitelist=0123456789/"
 OCR_PSM = (7, 6)
 THRESHOLD_OFFSETS = (0, -30, 30)
@@ -693,10 +694,10 @@ def analyze_glyphs(image, capacity=None, reading=""):
 
     full is True/False if the glyphs allow a conclusion, None if the OCR is
     needed. Full: the number before the "/" has the same glyphs as the one
-    after (10/10, 20/20), whatever the capacity.
-    The first digit is enough to decide: as the counter never goes above its
-    capacity, a 2-digit number starting like it can only be it (20/20).
-    Clearly different: not full, without OCR.
+    after (10/10, 25/25), whatever the capacity. Only one of the two digits
+    clearly different: not full, without OCR (20/25 differs only by the 2nd
+    digit, 15/25 only by the 1st). If the glyphs say full but the quick OCR
+    reading reads another number, the full OCR decides.
 
     Numerator (text, None if a doubt remains): each digit is compared with
     those of the denominator ("10", "20"), which give their shape in the
@@ -748,10 +749,11 @@ def analyze_glyphs(image, capacity=None, reading=""):
 
         sim_1, sim_0 = sim(0, 3), sim(1, 4)
         description = f"5 glyphs, similarities {sim_1:.2f}/{sim_0:.2f}"
-        if sim_1 >= SAME_SIMILARITY and sim_0 >= SAME_SIMILARITY:
-            return True, description, digits or None
-        if sim_1 < DIFFERENT_SIMILARITY:
+        if sim_1 < DIFFERENT_SIMILARITY or sim_0 < DIFFERENT_SIMILARITY:
             return False, description, numerator
+        read_elsewhere = re.fullmatch(r"\d{2}/\d{2}", reading) and not full_vote(reading)
+        if sim_1 >= SAME_SIMILARITY and sim_0 >= SAME_SIMILARITY and not read_elsewhere:
+            return True, description, digits or None
         return None, description, None
 
     return None, description, None
@@ -820,6 +822,15 @@ class CounterDetector:
         """To call after an opening: the counter must be read from scratch."""
         self._signature = None
         self.in_a_row = 0
+
+    def counter_visible(self):
+        """True if the counter is at its place: still on the home page."""
+        image = capture_area(self.region)
+        for hardening in THRESHOLD_HARDENINGS:
+            glyphs = split_glyphs(image, hardening)
+            if glyphs is not None and is_slash(glyphs[-3]):
+                return True
+        return False
 
     def change_capacity(self, capacity):
         """Capacity of the logged-in account (0 = read on screen): counter read from scratch."""
@@ -1036,8 +1047,8 @@ class CounterDetector:
     def _learn_capacity(self, read):
         """
         Capacity read on screen: "3/20" -> 20. Always checked: if it differs
-        from the capacity set (two readings in a row, so as not to follow a
-        wrong reading), the script adapts to the counter.
+        from the one already known, set or read (two readings in a row, so
+        as not to follow a wrong reading), the script adapts to the counter.
         """
         m = re.search(r"/(\d{2})", read)
         if not m:
@@ -1046,10 +1057,10 @@ class CounterDetector:
         if capacity not in POSSIBLE_CAPACITIES or capacity == self.capacity_read:
             self._capacity_to_confirm = None
             return
+        if self.capacity_read and self._capacity_to_confirm != capacity:
+            self._capacity_to_confirm = capacity
+            return
         if self.capacity:
-            if self._capacity_to_confirm != capacity:
-                self._capacity_to_confirm = capacity
-                return
             print(f"{self.prefix} The counter goes up to {capacity}, not {self.capacity_read} "
                   f"as set: the script adapts ({capacity} boosters).")
         else:
@@ -1360,9 +1371,9 @@ def scroll(browser, position, notches, description=""):
 # MAIN LOOP
 # ============================================================
 # Number of boosters opened by the game button, and pause between two
-# openings in a row (counter at 20: two openings).
+# openings in a row (counter at 20 or 25: two openings).
 BOOSTERS_PER_OPENING = 10
-PAUSE_BETWEEN_OPENINGS = 2
+PAUSE_BETWEEN_OPENINGS = 4
 
 def main_loop(browser, detector, popup, sequence, interval=2,
               pause_after_opening=5, each_pass=None):

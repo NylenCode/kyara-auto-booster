@@ -887,17 +887,21 @@ def decrire_compte(reglage):
     return texte
 
 
+# Capacités acceptées : 0 (lue toute seule), 10, 15, 20, 25…
+CAPACITES = (0, *range(10, 55, 5))
+
+
 def demander_capacite(defaut):
     """Capacité du compteur d'un compte : 0 (lue toute seule), 10, 20…"""
-    print("Compteur de ce compte : 0 = lu tout seul (conseillé), 10 = sans abonnement,")
-    print("20 = abonnement +10 de capacité (compteur « x/20 »).")
+    print("Compteur de ce compte : 0 = lu tout seul (conseillé), sinon son maximum :")
+    print("10 = sans abonnement, 20 = abonnement, +5 avec un bonus d'événement (15, 25).")
     while True:
         reponse = demander(f"Capacité du compteur pour ce compte (Entrée = {defaut}) : ")
         if not reponse:
             return defaut
-        if reponse.isdigit() and int(reponse) in (0, 10, 20, 30, 40, 50):
+        if reponse.isdigit() and int(reponse) in CAPACITES:
             return int(reponse)
-        print("Réponds 0, 10 ou 20.")
+        print("Réponds 0, ou un maximum : 10, 15, 20, 25…")
 
 
 def ajouter_compte(texte):
@@ -1109,8 +1113,8 @@ REGLAGES = (
     ("LECTURES_STABLES", "lectures « compteur plein » d'affilée avant d'ouvrir", 2),
     ("CAPACITE_MAX", "capacité max du compteur de boosters : 0 = lue toute seule sur "
                      "le compteur (conseillé), 10 = sans abonnement, 20 = abonnement "
-                     "+10 de capacité (pour les comptes sans réglage à eux : "
-                     "menu Comptes)", 0),
+                     "+10 de capacité, +5 avec un bonus d'événement (15, 25) (pour "
+                     "les comptes sans réglage à eux : menu Comptes)", 0),
     ("PAUSE_APRES_OUVERTURE", "pause après une ouverture, en secondes", 5),
     ("INTERVALLE_POPUP", "délai maximum entre deux vérifications du popup, en secondes", 10),
     ("DUREE_MOUVEMENT", "durée d'un mouvement de souris en secondes, min et max : la souris "
@@ -1156,8 +1160,8 @@ def convertir(reponse, actuelle, nom):
         raise ValueError("nombre entier attendu")
     if valeur == 0 and nom == "LECTURES_STABLES":
         raise ValueError("au moins 1")
-    if nom == "CAPACITE_MAX" and valeur not in (0, 10, 20, 30, 40, 50):
-        raise ValueError("0 (automatique), 10, 20, 30, 40 ou 50")
+    if nom == "CAPACITE_MAX" and valeur not in CAPACITES:
+        raise ValueError("0 (automatique), ou 10, 15, 20, 25… jusqu'à 50")
     return valeur
 
 
