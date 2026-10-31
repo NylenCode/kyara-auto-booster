@@ -111,6 +111,8 @@ _kernel32.GetModuleHandleW.argtypes = (ctypes.c_wchar_p,)
 # (pattern, text to show, is a pack). The "pos" group is the position
 # "(x, y)"; for a pack, the "scr" group is its scroll setting.
 POSITION = r"(?P<pos>\(-?\d+, -?\d+\))"
+BUTTON_5_LABEL = ("the \"×5\" button of a pack page, left of \"×10\" (optional: "
+                  "opens the 5 boosters left of a counter at 15 or 25)")
 SCROLL = r'(?P<scr>, "scroll": (?P<notches>\d+))?'
 ELEMENTS = (
     (rf"^COUNTER_CENTER = {POSITION}",
@@ -125,6 +127,7 @@ ELEMENTS = (
      lambda m: f"the button \"{m['name']}\"", False),
     (rf'^\s*\("reveal_all", {POSITION}',
      lambda m: "the « Tout révéler » (Reveal all) button (screen of the cards to turn)", False),
+    (rf"^BUTTON_5_BOOSTERS = {POSITION}", lambda m: BUTTON_5_LABEL, False),
 )
 NOT_SET = "(0, 0)"
 EXECUTABLE_PATTERN = re.compile(r'^EXECUTABLE = (?P<val>"[^"]*")', re.MULTILINE)
@@ -248,6 +251,11 @@ SEQUENCE = [
     ("read_cards",),
     ("click", "Back to start", (0, 0), 2),
 ]
+
+# "×5" button of a pack page (left of "×10"): opens the 5 boosters left of a
+# counter at 15 or 25, after the openings of 10.
+# (0, 0) = not placed: these 5 boosters stay on the counter.
+BUTTON_5_BOOSTERS = (0, 0)
 
 # ---------- 5. « Tu es toujours là ? » ("Are you still there?") popup ----------
 # The popup is looked for on the whole SCREEN_AREA; the click is on its button.
@@ -716,7 +724,7 @@ def find_elements(text, all_=False):
 
 def to_set(text):
     return [label for _, _, label, current, _ in find_elements(text)
-            if current == NOT_SET]
+            if current == NOT_SET and label != BUTTON_5_LABEL]
 
 
 def unknown_browser(text):

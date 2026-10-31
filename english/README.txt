@@ -294,9 +294,12 @@ CONTENTS
           adapts (20 boosters)."
      In every case, it opens when the counter is full.
      At 20/20, the game button only opens 10 boosters: the program
-     therefore does the opening TWICE in a row (20/20 -> 10/20 -> 0/20,
-     25/25 -> 15/25 -> 5/25). At 15/15, only once (15/15 -> 5/15).
+     therefore does the opening TWICE in a row (20/20 -> 10/20 -> 0/20).
      The 2nd time, it takes the next pack of your rotation.
+     At 15/15 and 25/25, it then opens the 5 boosters left with the "×5"
+     button (15/15 -> 5/15 -> 0/15, 25/25 -> 15/25 -> 5/25 -> 0/25).
+     Place this button in menu 3 (page of a pack, left of "×10");
+     without it, these 5 boosters stay on the counter.
      The shorter recharge time of a subscription needs no setting:
      the program just watches the counter.
 

@@ -1393,17 +1393,29 @@ def defiler(navigateur, position, crans, description=""):
 # ============================================================
 # BOUCLE PRINCIPALE
 # ============================================================
-# Nombre de boosters ouverts par le bouton du jeu, et pause entre deux
-# ouvertures d'affilée (compteur à 20 ou 25 : deux ouvertures).
+# Boosters ouverts par le bouton « ×10 » du jeu, par le « ×5 » pour le reste
+# d'un compteur à 15 ou 25, et pause entre deux ouvertures d'affilée.
 BOOSTERS_PAR_OUVERTURE = 10
+BOOSTERS_RESTE = 5
 PAUSE_ENTRE_OUVERTURES = 4
 
+
+def lots_a_ouvrir(capacite, bouton_5):
+    """Boosters de chaque ouverture pour vider le compteur : 25 -> [10, 10, 5]."""
+    lots = [BOOSTERS_PAR_OUVERTURE] * (capacite // BOOSTERS_PAR_OUVERTURE)
+    if bouton_5 and capacite % BOOSTERS_PAR_OUVERTURE >= BOOSTERS_RESTE:
+        lots.append(BOOSTERS_RESTE)
+    return lots or [BOOSTERS_PAR_OUVERTURE]
+
+
 def boucle_principale(navigateur, detecteur, popup, sequence, intervalle=2,
-                      pause_apres_ouverture=5, a_chaque_tour=None):
+                      pause_apres_ouverture=5, a_chaque_tour=None, bouton_5=False):
     """
     Détection en continu ; ouverture seulement quand le verrou est obtenu.
     Attendre son tour ne bloque jamais la lecture du compteur.
     `a_chaque_tour` : fonction appelée à chaque passage (ex. suivi du compte).
+    `bouton_5` : vrai si le bouton « ×5 » est placé. `sequence` reçoit le
+    nombre de boosters à ouvrir.
     """
     from coordination import liberer_au_demarrage
 
@@ -1432,18 +1444,22 @@ def boucle_principale(navigateur, detecteur, popup, sequence, intervalle=2,
 
                 if detecteur.lire() and demander_tour(navigateur):
                     print(f"{prefixe} Compteur plein confirmé et souris libre : ouverture.")
-                    # Le bouton du jeu ouvre 10 boosters : à 20/20, deux ouvertures
-                    # d'affilée pour vider le compteur.
-                    ouvertures = max(1, (detecteur.capacite_lue or 0) // BOOSTERS_PAR_OUVERTURE)
+                    # Le jeu ouvre 10 boosters à la fois : plusieurs ouvertures
+                    # d'affilée pour vider le compteur (25 : 10, 10, puis 5).
+                    capacite = detecteur.capacite_lue or 0
+                    lots = lots_a_ouvrir(capacite, bouton_5)
+                    if capacite % BOOSTERS_PAR_OUVERTURE and not bouton_5:
+                        print(f"{prefixe} Bouton ×5 pas placé (menu 3 de l'assistant) : "
+                              "les 5 boosters restants restent sur le compteur.")
                     try:
                         with navigateur_au_premier_plan():
-                            for numero in range(1, ouvertures + 1):
+                            for numero, lot in enumerate(lots, 1):
                                 if numero > 1:
                                     time.sleep(PAUSE_ENTRE_OUVERTURES)
                                     popup.verifier(urgent=True)
-                                    print(f"{prefixe} Compteur à {detecteur.capacite_lue} : "
-                                          f"ouverture {numero}/{ouvertures}.")
-                                sequence()
+                                    print(f"{prefixe} Compteur à {capacite} : "
+                                          f"ouverture {numero}/{len(lots)} ({lot} boosters).")
+                                sequence(lot)
                     finally:
                         terminer_tour(navigateur)
                     detecteur.reinitialiser()

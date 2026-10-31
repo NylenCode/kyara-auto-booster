@@ -293,9 +293,12 @@ SOMMAIRE
            s'adapte (20 boosters). »
      Dans tous les cas, il ouvre quand le compteur est plein.
      À 20/20, le bouton du jeu n'ouvre que 10 boosters : le programme
-     fait donc l'ouverture DEUX fois d'affilée (20/20 -> 10/20 -> 0/20,
-     25/25 -> 15/25 -> 5/25). À 15/15, une seule fois (15/15 -> 5/15).
+     fait donc l'ouverture DEUX fois d'affilée (20/20 -> 10/20 -> 0/20).
      La 2e fois, il prend le pack suivant de ta rotation.
+     À 15/15 et 25/25, il ouvre ensuite les 5 boosters restants avec le
+     bouton « ×5 » (15/15 -> 5/15 -> 0/15, 25/25 -> 15/25 -> 5/25 -> 0/25).
+     Place ce bouton dans le menu 3 (page d'un pack, à gauche de « ×10 ») ;
+     sans lui, ces 5 boosters restent sur le compteur.
      Le temps de recharge plus court d'un abonnement ne demande aucun
      réglage : le programme regarde juste le compteur.
 

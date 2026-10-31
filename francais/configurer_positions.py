@@ -111,6 +111,8 @@ _kernel32.GetModuleHandleW.argtypes = (ctypes.c_wchar_p,)
 # (motif, texte à afficher, est un pack). Le groupe « pos » est la position
 # « (x, y) » ; pour un pack, le groupe « mol » est son réglage de molette.
 POSITION = r"(?P<pos>\(-?\d+, -?\d+\))"
+LIBELLE_BOUTON_5 = ("le bouton « ×5 » de la page d'un pack, à gauche de « ×10 » (facultatif : "
+                    "ouvre les 5 boosters restants d'un compteur à 15 ou 25)")
 MOLETTE = r'(?P<mol>, "molette": (?P<crans>\d+))?'
 ELEMENTS = (
     (rf"^COMPTEUR_CENTRE = {POSITION}",
@@ -125,6 +127,7 @@ ELEMENTS = (
      lambda m: f"le bouton « {m['nom']} »", False),
     (rf'^\s*\("tout_reveler", {POSITION}',
      lambda m: "le bouton « Tout révéler » (écran des cartes à retourner)", False),
+    (rf"^BOUTON_5_BOOSTERS = {POSITION}", lambda m: LIBELLE_BOUTON_5, False),
 )
 NON_DEFINIE = "(0, 0)"
 MOTIF_EXECUTABLE = re.compile(r'^EXECUTABLE = (?P<val>"[^"]*")', re.MULTILINE)
@@ -247,6 +250,11 @@ SEQUENCE = [
     ("lire_cartes",),
     ("clic", "Retour au début", (0, 0), 2),
 ]
+
+# Bouton « ×5 » de la page d'un pack (à gauche de « ×10 ») : ouvre les 5
+# boosters restants d'un compteur à 15 ou 25, après les ouvertures de 10.
+# (0, 0) = pas placé : ces 5 boosters restent sur le compteur.
+BOUTON_5_BOOSTERS = (0, 0)
 
 # ---------- 5. Popup « Tu es toujours là ? » ----------
 # Le popup est cherché sur tout ZONE_ECRAN ; le clic se fait sur son bouton.
@@ -715,7 +723,7 @@ def trouver_elements(texte, tous=False):
 
 def a_definir(texte):
     return [libelle for _, _, libelle, actuelle, _ in trouver_elements(texte)
-            if actuelle == NON_DEFINIE]
+            if actuelle == NON_DEFINIE and libelle != LIBELLE_BOUTON_5]
 
 
 def navigateur_inconnu(texte):

@@ -1395,17 +1395,29 @@ def scroll(browser, position, notches, description=""):
 # ============================================================
 # MAIN LOOP
 # ============================================================
-# Number of boosters opened by the game button, and pause between two
-# openings in a row (counter at 20 or 25: two openings).
+# Boosters opened by the "×10" button of the game, by the "×5" for the rest
+# of a counter at 15 or 25, and pause between two openings in a row.
 BOOSTERS_PER_OPENING = 10
+BOOSTERS_LEFT = 5
 PAUSE_BETWEEN_OPENINGS = 4
 
+
+def batches_to_open(capacity, button_5):
+    """Boosters of each opening to empty the counter: 25 -> [10, 10, 5]."""
+    batches = [BOOSTERS_PER_OPENING] * (capacity // BOOSTERS_PER_OPENING)
+    if button_5 and capacity % BOOSTERS_PER_OPENING >= BOOSTERS_LEFT:
+        batches.append(BOOSTERS_LEFT)
+    return batches or [BOOSTERS_PER_OPENING]
+
+
 def main_loop(browser, detector, popup, sequence, interval=2,
-              pause_after_opening=5, each_pass=None):
+              pause_after_opening=5, each_pass=None, button_5=False):
     """
     Continuous detection; opening only when the lock is obtained.
     Waiting for one's turn never blocks the reading of the counter.
     `each_pass`: function called at each pass (e.g. following the account).
+    `button_5`: true if the "×5" button is placed. `sequence` receives the
+    number of boosters to open.
     """
     from coordination import release_at_startup
 
@@ -1434,18 +1446,22 @@ def main_loop(browser, detector, popup, sequence, interval=2,
 
                 if detector.read() and request_turn(browser):
                     print(f"{prefix} Full counter confirmed and mouse free: opening.")
-                    # The game button opens 10 boosters: at 20/20, two openings
-                    # in a row to empty the counter.
-                    openings = max(1, (detector.capacity_read or 0) // BOOSTERS_PER_OPENING)
+                    # The game opens 10 boosters at a time: several openings
+                    # in a row to empty the counter (25: 10, 10, then 5).
+                    capacity = detector.capacity_read or 0
+                    batches = batches_to_open(capacity, button_5)
+                    if capacity % BOOSTERS_PER_OPENING and not button_5:
+                        print(f"{prefix} ×5 button not placed (menu 3 of the assistant): "
+                              "the 5 boosters left stay on the counter.")
                     try:
                         with browser_in_front():
-                            for number in range(1, openings + 1):
+                            for number, batch in enumerate(batches, 1):
                                 if number > 1:
                                     time.sleep(PAUSE_BETWEEN_OPENINGS)
                                     popup.check(urgent=True)
-                                    print(f"{prefix} Counter at {detector.capacity_read}: "
-                                          f"opening {number}/{openings}.")
-                                sequence()
+                                    print(f"{prefix} Counter at {capacity}: "
+                                          f"opening {number}/{len(batches)} ({batch} boosters).")
+                                sequence(batch)
                     finally:
                         end_turn(browser)
                     detector.reset()

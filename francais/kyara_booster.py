@@ -126,6 +126,11 @@ SEQUENCE = [
     ("clic", "Retour au début", (0, 0), 2),
 ]
 
+# Bouton « ×5 » de la page d'un pack (à gauche de « ×10 ») : ouvre les 5
+# boosters restants d'un compteur à 15 ou 25, après les ouvertures de 10.
+# (0, 0) = pas placé : ces 5 boosters restent sur le compteur.
+BOUTON_5_BOOSTERS = (0, 0)
+
 # ---------- 5. Popup « Tu es toujours là ? » ----------
 # Le popup est cherché sur tout ZONE_ECRAN ; le clic se fait sur son bouton.
 # Vérification complète toutes les N secondes (un test rapide tourne en plus
@@ -154,6 +159,8 @@ from PIL import ImageChops, ImageOps, ImageStat
 
 import kyara_commun
 from kyara_commun import (
+    BOOSTERS_PAR_OUVERTURE,
+    BOOSTERS_RESTE,
     CAPACITES_POSSIBLES,
     DOSSIER_CHASSES,
     DOSSIER_DEBUG,
@@ -180,6 +187,8 @@ ATTENTE_MAX_BOUTON = 8
 # temps laissé à la page pour changer, et nombre de clics essayés.
 ATTENTE_PAGE_PACK = 4
 ESSAIS_CLIC_PACK = 3
+# Étape de la SEQUENCE remplacée par le bouton « ×5 » pour ouvrir les 5 restants.
+ETAPE_10_BOOSTERS = "Ouvrir 10 boosters"
 # Avant de lire les cartes, attente que l'écran ne bouge plus (animation).
 ATTENTE_MAX_GRILLE = 6
 
@@ -564,7 +573,7 @@ def ouvrir_page_pack(pack, attente):
     return False
 
 
-def ouvrir_boosters():
+def ouvrir_boosters(lot=BOOSTERS_PAR_OUVERTURE):
     pack, chasse, compte = choisir_pack()
     print(f"{PREFIXE} Début de l'ouverture : {pack}"
           + (f" (compte {compte})." if compte else "."))
@@ -577,6 +586,8 @@ def ouvrir_boosters():
                 return
         elif action in ("clic", "double_clic"):
             _, description, position, attente = etape
+            if lot == BOOSTERS_RESTE and description == ETAPE_10_BOOSTERS:
+                description, position = "×5", BOUTON_5_BOOSTERS
             cliquer(NOM, position, description, attente, double=action == "double_clic")
         elif action == "tout_reveler":
             etape_tout_reveler(etape[1], etape[2])
@@ -630,7 +641,8 @@ def main():
 
     boucle_principale(NOM, detecteur, popup, ouvrir_boosters, INTERVALLE,
                       pause_apres_ouverture=PAUSE_APRES_OUVERTURE,
-                      a_chaque_tour=suivre_compte)
+                      a_chaque_tour=suivre_compte,
+                      bouton_5=tuple(BOUTON_5_BOOSTERS) != (0, 0))
 
 
 if __name__ == "__main__":

@@ -127,6 +127,11 @@ SEQUENCE = [
     ("click", "Back to start", (0, 0), 2),
 ]
 
+# "×5" button of a pack page (left of "×10"): opens the 5 boosters left of a
+# counter at 15 or 25, after the openings of 10.
+# (0, 0) = not placed: these 5 boosters stay on the counter.
+BUTTON_5_BOOSTERS = (0, 0)
+
 # ---------- 5. « Tu es toujours là ? » ("Are you still there?") popup ----------
 # The popup is looked for on the whole SCREEN_AREA; the click is on its button.
 # Full check every N seconds (a quick test also runs at each pass and
@@ -155,6 +160,8 @@ from PIL import ImageChops, ImageOps, ImageStat
 
 import kyara_common
 from kyara_common import (
+    BOOSTERS_PER_OPENING,
+    BOOSTERS_LEFT,
     POSSIBLE_CAPACITIES,
     HUNTS_DIR,
     DEBUG_DIR,
@@ -181,6 +188,8 @@ MAX_BUTTON_WAIT = 8
 # left to the page to change, and number of clicks tried.
 PACK_PAGE_WAIT = 4
 PACK_CLICK_TRIES = 3
+# Step of the SEQUENCE replaced by the "×5" button to open the 5 left.
+STEP_10_BOOSTERS = "Open 10 boosters"
 # Before reading the cards, wait until the screen stops moving (animation).
 MAX_GRID_WAIT = 6
 
@@ -566,7 +575,7 @@ def open_pack_page(pack, wait):
     return False
 
 
-def open_boosters():
+def open_boosters(batch=BOOSTERS_PER_OPENING):
     pack, hunt, account = choose_pack()
     print(f"{PREFIX} Start of the opening: {pack}"
           + (f" (account {account})." if account else "."))
@@ -579,6 +588,8 @@ def open_boosters():
                 return
         elif action in ("click", "double_click"):
             _, description, position, wait = step
+            if batch == BOOSTERS_LEFT and description == STEP_10_BOOSTERS:
+                description, position = "×5", BUTTON_5_BOOSTERS
             click(NAME, position, description, wait, double=action == "double_click")
         elif action == "reveal_all":
             step_reveal_all(step[1], step[2])
@@ -632,7 +643,8 @@ def main():
 
     main_loop(NAME, detector, popup, open_boosters, INTERVAL,
               pause_after_opening=PAUSE_AFTER_OPENING,
-              each_pass=follow_account)
+              each_pass=follow_account,
+              button_5=tuple(BUTTON_5_BOOSTERS) != (0, 0))
 
 
 if __name__ == "__main__":
