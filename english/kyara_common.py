@@ -57,11 +57,15 @@ VERBOSE_OCR = False
 MAX_GLYPH_GAP = 3
 # Likeness (correlation of the gray levels, -1 to 1) of two glyphs, measured
 # on real captures: the same digit gives 0.87 to 1.00, two different digits
-# 0.74 at most ("1" and "2"; "6" and slashed zero: 0.70). At least
+# 0.81 at most ("3" and "5"; slashed zero and "5": 0.78). At least
 # SAME_SIMILARITY: same digit. Less than DIFFERENT_SIMILARITY: different
 # digits. In between: doubt, OCR.
-SAME_SIMILARITY = 0.82
-DIFFERENT_SIMILARITY = 0.78
+SAME_SIMILARITY = 0.85
+DIFFERENT_SIMILARITY = 0.83
+# Turned by 180°, the slashed zero stays nearly the same (0.72 to 0.78 on real
+# captures), not the "6" (0.32): this decides when the OCR reads one of the
+# two, the only way without a "0" in the denominator (20/25, 6/15).
+ZERO_SYMMETRY = 0.52
 # Thresholds tried in turn (above Otsu): a stricter threshold separates
 # glyphs stuck together by anti-aliasing ("6/" or "10").
 THRESHOLD_HARDENINGS = (0, 30, 60)
@@ -664,6 +668,14 @@ def locate_counter(image, size):
     return xs[len(xs) // 2], ys[len(ys) // 2]
 
 
+def _center(pixels):
+    """Gray levels centered and normed: their dot product is a correlation."""
+    mean = sum(pixels) / len(pixels)
+    centered = [p - mean for p in pixels]
+    norm = sum(c * c for c in centered) ** 0.5 or 1
+    return [c / norm for c in centered]
+
+
 def similarity(gray, box_a, box_b, width, top, bottom):
     """
     Likeness (-1 to 1) of two glyphs: correlation of their gray levels, in
@@ -674,11 +686,7 @@ def similarity(gray, box_a, box_b, width, top, bottom):
     """
     def values(box, dx=0, dy=0):
         left = (box[0] + box[1]) // 2 - width // 2 + dx
-        pixels = gray.crop((left, top + dy, left + width, bottom + dy)).tobytes()
-        mean = sum(pixels) / len(pixels)
-        centered = [p - mean for p in pixels]
-        norm = sum(c * c for c in centered) ** 0.5 or 1
-        return [c / norm for c in centered]
+        return _center(gray.crop((left, top + dy, left + width, bottom + dy)).tobytes())
 
     a = values(box_a)
     return max(
@@ -686,6 +694,18 @@ def similarity(gray, box_a, box_b, width, top, bottom):
         for dx in (-1, 0, 1)
         for dy in (-1, 0, 1)
     )
+
+
+def symmetry(gray, box):
+    """Likeness (-1 to 1) of a glyph with itself turned by 180°."""
+    left, right, top, bottom = box
+
+    def score(dx, dy):
+        window = gray.crop((left - 1, top - 1, right + 1 + dx, bottom + 1 + dy))
+        turned = _center(window.rotate(180).tobytes())
+        return sum(x * y for x, y in zip(_center(window.tobytes()), turned))
+
+    return max(score(dx, dy) for dx in (0, 1) for dy in (0, 1))
 
 
 def analyze_glyphs(image, capacity=None, reading=""):
@@ -702,7 +722,8 @@ def analyze_glyphs(image, capacity=None, reading=""):
     Numerator (text, None if a doubt remains): each digit is compared with
     those of the denominator ("10", "20"), which give their shape in the
     font: the slashed zero, which the OCR reads "6", is recognized this way.
-    The other digits come from the quick OCR reading (reading, e.g. "13/20").
+    The other digits come from the quick OCR reading (reading, e.g. "13/20");
+    a "0" or a "6" there is checked by its symmetry.
     """
     gray = ImageOps.autocontrast(ImageOps.grayscale(image))
     if capacity:
@@ -738,7 +759,10 @@ def analyze_glyphs(image, capacity=None, reading=""):
             elif len(read) == slash and not any(
                     len(digits) == 2 and read[k] == digits[j] and s < DIFFERENT_SIMILARITY
                     for j, s in enumerate(likenesses)):
-                numerator += read[k]
+                if read[k] in "06":
+                    numerator += "0" if symmetry(gray, boxes[k]) >= ZERO_SYMMETRY else "6"
+                else:
+                    numerator += read[k]
             else:
                 numerator = None
                 break
@@ -754,7 +778,7 @@ def analyze_glyphs(image, capacity=None, reading=""):
         read_elsewhere = re.fullmatch(r"\d{2}/\d{2}", reading) and not full_vote(reading)
         if sim_1 >= SAME_SIMILARITY and sim_0 >= SAME_SIMILARITY and not read_elsewhere:
             return True, description, digits or None
-        return None, description, None
+        return None, description, numerator
 
     return None, description, None
 
@@ -1101,8 +1125,9 @@ class CounterDetector:
             # surely (the slashed zero read "6" affects both).
             exact = [r for r in valid if r.split("/")[1] == str(self.capacity_read)]
             valid = exact or valid
-        value = (f"{valid[0].split('/')[0]}/{self.capacity_read or '?'}"
-                 if valid else "?")
+            numerator = analyze_glyphs(image, self.capacity_read, valid[0])[2]
+            numerator = numerator or valid[0].split("/")[0]
+        value = f"{numerator}/{self.capacity_read or '?'}" if valid else "?"
         return False, value, f"{detail}, OCR: {readings}"
 
 

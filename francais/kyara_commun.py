@@ -57,11 +57,15 @@ OCR_VERBEUX = False
 ECART_MAX_GLYPHES = 3
 # Ressemblance (corrélation des niveaux de gris, -1 à 1) de deux glyphes,
 # mesurée sur les vraies captures : un même chiffre donne 0.87 à 1.00, deux
-# chiffres différents 0.74 au plus (« 1 » et « 2 » ; « 6 » et zéro barré :
-# 0.70). Au moins SIMILARITE_MEME : même chiffre. Moins de
+# chiffres différents 0.81 au plus (« 3 » et « 5 » ; zéro barré et « 5 » :
+# 0.78). Au moins SIMILARITE_MEME : même chiffre. Moins de
 # SIMILARITE_DIFFERENTE : chiffres différents. Entre les deux : doute, OCR.
-SIMILARITE_MEME = 0.82
-SIMILARITE_DIFFERENTE = 0.78
+SIMILARITE_MEME = 0.85
+SIMILARITE_DIFFERENTE = 0.83
+# Retourné à 180°, le zéro barré reste presque le même (0.72 à 0.78 sur les
+# vraies captures), pas le « 6 » (0.32) : il tranche quand l'OCR lit l'un des
+# deux, seul moyen sans « 0 » au dénominateur (20/25, 6/15).
+SYMETRIE_ZERO = 0.52
 # Seuils essayés tour à tour (au-dessus d'Otsu) : un seuil plus strict
 # sépare les glyphes collés par l'anticrénelage (« 6/ » ou « 10 »).
 DURCISSEMENTS_SEUIL = (0, 30, 60)
@@ -664,6 +668,14 @@ def localiser_compteur(image, taille):
     return xs[len(xs) // 2], ys[len(ys) // 2]
 
 
+def _centrer(pixels):
+    """Niveaux de gris centrés et normés : leur produit scalaire est une corrélation."""
+    moyenne = sum(pixels) / len(pixels)
+    centres = [p - moyenne for p in pixels]
+    norme = sum(c * c for c in centres) ** 0.5 or 1
+    return [c / norme for c in centres]
+
+
 def similarite(gris, boite_a, boite_b, largeur, haut, bas):
     """
     Ressemblance (-1 à 1) de deux glyphes : corrélation de leurs niveaux de
@@ -674,11 +686,7 @@ def similarite(gris, boite_a, boite_b, largeur, haut, bas):
     """
     def valeurs(boite, dx=0, dy=0):
         gauche = (boite[0] + boite[1]) // 2 - largeur // 2 + dx
-        pixels = gris.crop((gauche, haut + dy, gauche + largeur, bas + dy)).tobytes()
-        moyenne = sum(pixels) / len(pixels)
-        centres = [p - moyenne for p in pixels]
-        norme = sum(c * c for c in centres) ** 0.5 or 1
-        return [c / norme for c in centres]
+        return _centrer(gris.crop((gauche, haut + dy, gauche + largeur, bas + dy)).tobytes())
 
     a = valeurs(boite_a)
     return max(
@@ -686,6 +694,18 @@ def similarite(gris, boite_a, boite_b, largeur, haut, bas):
         for dx in (-1, 0, 1)
         for dy in (-1, 0, 1)
     )
+
+
+def symetrie(gris, boite):
+    """Ressemblance (-1 à 1) d'un glyphe avec lui-même retourné à 180°."""
+    gauche, droite, haut, bas = boite
+
+    def score(dx, dy):
+        fenetre = gris.crop((gauche - 1, haut - 1, droite + 1 + dx, bas + 1 + dy))
+        retourne = _centrer(fenetre.rotate(180).tobytes())
+        return sum(x * y for x, y in zip(_centrer(fenetre.tobytes()), retourne))
+
+    return max(score(dx, dy) for dx in (0, 1) for dy in (0, 1))
 
 
 def analyser_glyphes(image, capacite=None, lecture=""):
@@ -702,7 +722,8 @@ def analyser_glyphes(image, capacite=None, lecture=""):
     Numérateur (texte, None s'il reste un doute) : chaque chiffre est comparé
     à ceux du dénominateur (« 10 », « 20 »), qui donnent leur forme dans la
     police : le zéro barré, que l'OCR lit « 6 », est ainsi reconnu. Les autres
-    chiffres viennent de la lecture OCR rapide (lecture, ex. « 13/20 »).
+    chiffres viennent de la lecture OCR rapide (lecture, ex. « 13/20 ») ; un
+    « 0 » ou un « 6 » y est vérifié par sa symétrie.
     """
     gris = ImageOps.autocontrast(ImageOps.grayscale(image))
     if capacite:
@@ -738,7 +759,10 @@ def analyser_glyphes(image, capacite=None, lecture=""):
             elif len(lu) == barre and not any(
                     len(chiffres) == 2 and lu[k] == chiffres[j] and s < SIMILARITE_DIFFERENTE
                     for j, s in enumerate(ressemblances)):
-                numerateur += lu[k]
+                if lu[k] in "06":
+                    numerateur += "0" if symetrie(gris, boites[k]) >= SYMETRIE_ZERO else "6"
+                else:
+                    numerateur += lu[k]
             else:
                 numerateur = None
                 break
@@ -754,7 +778,7 @@ def analyser_glyphes(image, capacite=None, lecture=""):
         lu_ailleurs = re.fullmatch(r"\d{2}/\d{2}", lecture) and not voix_plein(lecture)
         if sim_1 >= SIMILARITE_MEME and sim_0 >= SIMILARITE_MEME and not lu_ailleurs:
             return True, description, chiffres or None
-        return None, description, None
+        return None, description, numerateur
 
     return None, description, None
 
@@ -1101,8 +1125,9 @@ class DetecteurCompteur:
             # plus sûrement (le zéro barré lu « 6 » touche les deux).
             exactes = [l for l in valides if l.split("/")[1] == str(self.capacite_lue)]
             valides = exactes or valides
-        valeur = (f"{valides[0].split('/')[0]}/{self.capacite_lue or '?'}"
-                  if valides else "?")
+            numerateur = analyser_glyphes(image, self.capacite_lue, valides[0])[2]
+            numerateur = numerateur or valides[0].split("/")[0]
+        valeur = f"{numerateur}/{self.capacite_lue or '?'}" if valides else "?"
         return False, valeur, f"{detail}, OCR : {lectures}"
 
 
