@@ -91,6 +91,9 @@ PERIODIC_DISPLAY = 60
 # for in a band of this size around the expected position.
 UNREADABLE_BEFORE_RECENTER = 2
 DELAY_BETWEEN_RECENTERS = 10
+# Re-centering also if the text comes less than N pixels from the edge of the
+# area: a digit would be cut there ("10/10" read "0/10", so never full).
+EDGE_MARGIN = 8
 # "Counter not found" is printed again only once every N seconds.
 NOT_FOUND_REMINDER = 300
 
@@ -824,6 +827,7 @@ class CounterDetector:
         self._shown_value = None
         self._last_display = 0.0
         self._unreadable = 0
+        self._at_edge = False
         self._last_recenter = 0.0
         self._last_not_found_message = -1e9
         self.in_a_row = 0
@@ -863,6 +867,17 @@ class CounterDetector:
             self.capacity_read = capacity or None
             self._capacity_to_confirm = None
             self.reset()
+
+    def _text_at_edge(self, image):
+        """True if the text nearly touches an edge of the area read, or is unreadable there."""
+        if ImageStat.Stat(ImageOps.grayscale(image)).stddev[0] < 3:
+            return False
+        for hardening in THRESHOLD_HARDENINGS:
+            result = split_glyphs(image, hardening, with_position=True)
+            if result is not None and any(map(is_slash, result[0])):
+                x0, x1, _, _ = result[1]
+                return x0 < EDGE_MARGIN or x1 > image.width - EDGE_MARGIN
+        return True
 
     def recenter(self):
         """
@@ -1004,7 +1019,7 @@ class CounterDetector:
     def read(self):
         """Returns True when the counter is read full (10/10, 20/20) in a stable way."""
         if (
-            self._unreadable >= UNREADABLE_BEFORE_RECENTER
+            (self._unreadable >= UNREADABLE_BEFORE_RECENTER or self._at_edge)
             and time.monotonic() - self._last_recenter >= DELAY_BETWEEN_RECENTERS
         ):
             try:
@@ -1026,6 +1041,7 @@ class CounterDetector:
             raw_full, value, detail = self._last_result
         else:
             image.save(self.debug_image)
+            self._at_edge = self._text_at_edge(image)
             raw_full, value, detail = self._analyze(image)
             self._signature = signature
             self._last_result = (raw_full, value, detail)

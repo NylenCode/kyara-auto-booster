@@ -91,6 +91,9 @@ AFFICHAGE_PERIODIQUE = 60
 # dans une bande de cette taille autour de la position prévue.
 ILLISIBLES_AVANT_RECALAGE = 2
 DELAI_ENTRE_RECALAGES = 10
+# Recalage aussi si le texte arrive à moins de N pixels du bord de la zone :
+# un chiffre y serait coupé (« 10/10 » lu « 0/10 », donc jamais plein).
+MARGE_BORD = 8
 # « Compteur introuvable » n'est réaffiché qu'une fois toutes les N secondes.
 RAPPEL_INTROUVABLE = 300
 
@@ -824,6 +827,7 @@ class DetecteurCompteur:
         self._valeur_affichee = None
         self._dernier_affichage = 0.0
         self._illisibles = 0
+        self._au_bord = False
         self._dernier_recalage = 0.0
         self._dernier_message_introuvable = -1e9
         self.consecutifs = 0
@@ -863,6 +867,17 @@ class DetecteurCompteur:
             self.capacite_lue = capacite or None
             self._capacite_a_confirmer = None
             self.reinitialiser()
+
+    def _texte_au_bord(self, image):
+        """Vrai si le texte touche presque un bord de la zone lue, ou s'il y est illisible."""
+        if ImageStat.Stat(ImageOps.grayscale(image)).stddev[0] < 3:
+            return False
+        for durcissement in DURCISSEMENTS_SEUIL:
+            resultat = segmenter_glyphes(image, durcissement, avec_position=True)
+            if resultat is not None and any(map(est_barre_oblique, resultat[0])):
+                x0, x1, _, _ = resultat[1]
+                return x0 < MARGE_BORD or x1 > image.width - MARGE_BORD
+        return True
 
     def recaler(self):
         """
@@ -1004,7 +1019,7 @@ class DetecteurCompteur:
     def lire(self):
         """Renvoie True quand le compteur est lu plein (10/10, 20/20) de façon stable."""
         if (
-            self._illisibles >= ILLISIBLES_AVANT_RECALAGE
+            (self._illisibles >= ILLISIBLES_AVANT_RECALAGE or self._au_bord)
             and time.monotonic() - self._dernier_recalage >= DELAI_ENTRE_RECALAGES
         ):
             try:
@@ -1026,6 +1041,7 @@ class DetecteurCompteur:
             plein_brut, valeur, detail = self._dernier_resultat
         else:
             image.save(self.image_debug)
+            self._au_bord = self._texte_au_bord(image)
             plein_brut, valeur, detail = self._analyser(image)
             self._signature = signature
             self._dernier_resultat = (plein_brut, valeur, detail)
