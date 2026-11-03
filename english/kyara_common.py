@@ -56,11 +56,12 @@ VERBOSE_OCR = False
 # the colored indicator on the left or another interface element.
 MAX_GLYPH_GAP = 3
 # Likeness (correlation of the gray levels, -1 to 1) of two glyphs, measured
-# on real captures: the same digit gives 0.87 to 1.00, two different digits
-# 0.81 at most ("3" and "5"; slashed zero and "5": 0.78). At least
-# SAME_SIMILARITY: same digit. Less than DIFFERENT_SIMILARITY: different
-# digits. In between: doubt, OCR.
-SAME_SIMILARITY = 0.85
+# on real captures: the same digit gives 0.87 to 1.00 (0.87: two "1" under a
+# "+1" badge), two different digits 0.86 at most ("8" and slashed zero; "3"
+# and "5": 0.81). At least SAME_SIMILARITY: same digit. Less than
+# DIFFERENT_SIMILARITY: different digits. In between: doubt. Only the digits
+# that matter are compared (see analyze_glyphs): doubt is rare there.
+SAME_SIMILARITY = 0.88
 DIFFERENT_SIMILARITY = 0.83
 # Turned by 180°, the slashed zero stays nearly the same (0.72 to 0.78 on real
 # captures), not the "6" (0.32): this decides when the OCR reads one of the
@@ -561,72 +562,89 @@ def split_glyphs(image, hardening=0, with_position=False, with_boxes=False):
             [pixels[x, y] <= text_threshold for x in range(width)]
             for y in range(height)
         ]
-    columns = [sum(mask[y][x] for y in range(height)) for x in range(width)]
+    def cut_band(y0, y1):
+        columns = [sum(mask[y][x] for y in range(y0, y1)) for x in range(width)]
 
-    blocks = []
-    x = 0
-    while x < width:
-        if columns[x]:
-            start = x
-            while x < width and columns[x]:
+        blocks = []
+        x = 0
+        while x < width:
+            if columns[x]:
+                start = x
+                while x < width and columns[x]:
+                    x += 1
+                blocks.append((start, x))
+            else:
                 x += 1
-            blocks.append((start, x))
-        else:
-            x += 1
 
-    groups = []
-    for block in blocks:
-        if groups and block[0] - groups[-1][-1][1] <= MAX_GLYPH_GAP:
-            groups[-1].append(block)
-        else:
-            groups.append([block])
+        groups = []
+        for block in blocks:
+            if groups and block[0] - groups[-1][-1][1] <= MAX_GLYPH_GAP:
+                groups[-1].append(block)
+            else:
+                groups.append([block])
 
-    if not groups:
-        return None
+        if not groups:
+            return None
 
-    # The text is the group with the most glyphs.
-    group = max(groups, key=lambda g: (len(g), g[-1][1] - g[0][0]))
-    if not 3 <= len(group) <= 5:
-        return None
+        # The text is the group with the most glyphs.
+        group = max(groups, key=lambda g: (len(g), g[-1][1] - g[0][0]))
+        if not 3 <= len(group) <= 5:
+            return None
 
-    widths = sorted(end - start for start, end in group)
-    median = widths[len(widths) // 2]
+        widths = sorted(end - start for start, end in group)
+        median = widths[len(widths) // 2]
 
-    # Two glyphs stuck together (anti-aliasing): cut at the emptiest columns.
-    cut = []
-    for start, end in group:
-        count = round((end - start) / (median + 1))
-        if (end - start) <= median * 1.6 or count < 2:
-            cut.append((start, end))
-            continue
-        cuts = []
-        for i in range(1, count):
-            expected = start + (end - start) * i // count
-            near = range(max(start + 1, expected - 2), min(end - 1, expected + 3))
-            cuts.append(min(near, key=lambda c: columns[c]))
-        bounds = [start] + cuts + [end]
-        cut.extend(zip(bounds[:-1], bounds[1:]))
-    group = cut
+        # Two glyphs stuck together (anti-aliasing): cut at the emptiest columns.
+        cut = []
+        for start, end in group:
+            count = round((end - start) / (median + 1))
+            if (end - start) <= median * 1.6 or count < 2:
+                cut.append((start, end))
+                continue
+            cuts = []
+            for i in range(1, count):
+                expected = start + (end - start) * i // count
+                near = range(max(start + 1, expected - 2), min(end - 1, expected + 3))
+                cuts.append(min(near, key=lambda c: columns[c]))
+            bounds = [start] + cuts + [end]
+            cut.extend(zip(bounds[:-1], bounds[1:]))
+        group = cut
 
-    if len(group) not in (4, 5):
-        return None
-    widths = sorted(end - start for start, end in group)
-    if widths[0] < median * 0.5 or widths[-1] > median * 1.6:
-        return None
+        if len(group) not in (4, 5):
+            return None
+        widths = sorted(end - start for start, end in group)
+        if widths[0] < median * 0.5 or widths[-1] > median * 1.6:
+            return None
 
-    glyphs = []
-    tops, bottoms = [], []
-    for start, end in group:
-        lines = [y for y in range(height) if any(mask[y][start:end])]
-        glyphs.append([mask[y][start:end] for y in range(lines[0], lines[-1] + 1)])
-        tops.append(lines[0])
-        bottoms.append(lines[-1] + 1)
+        glyphs = []
+        tops, bottoms = [], []
+        for start, end in group:
+            lines = [y for y in range(y0, y1) if any(mask[y][start:end])]
+            glyphs.append([mask[y][start:end] for y in range(lines[0], lines[-1] + 1)])
+            tops.append(lines[0])
+            bottoms.append(lines[-1] + 1)
 
-    if with_boxes:
-        return glyphs, [(start, end, top, bottom) for (start, end), top, bottom in zip(group, tops, bottoms)]
-    if with_position:
-        return glyphs, (group[0][0], group[-1][1], min(tops), max(bottoms))
-    return glyphs
+        if with_boxes:
+            return glyphs, [(start, end, top, bottom) for (start, end), top, bottom in zip(group, tops, bottoms)]
+        if with_position:
+            return glyphs, (group[0][0], group[-1][1], min(tops), max(bottoms))
+        return glyphs
+
+    # Bands of lines with text: a badge placed above the counter ("+1") must
+    # not mix with the columns of the digits. The whole height first, then
+    # each band alone.
+    bands = []
+    for y in range(height):
+        if any(mask[y]):
+            if bands and bands[-1][1] == y:
+                bands[-1][1] = y + 1
+            else:
+                bands.append([y, y + 1])
+    for y0, y1 in [(0, height)] + (bands if len(bands) > 1 else []):
+        result = cut_band(y0, y1)
+        if result is not None:
+            return result
+    return None
 
 
 def is_slash(glyph):
@@ -719,8 +737,9 @@ def analyze_glyphs(image, capacity=None, reading=""):
     needed. Full: the number before the "/" has the same glyphs as the one
     after (10/10, 25/25), whatever the capacity. Only one of the two digits
     clearly different: not full, without OCR (20/25 differs only by the 2nd
-    digit, 15/25 only by the 1st). If the glyphs say full but the quick OCR
-    reading reads another number, the full OCR decides.
+    digit, 15/25 only by the 1st). Digit imposed by the capacity (the 1 of
+    10/10, the 0 of 20/20): only not clearly different. If the glyphs say
+    full but the quick OCR reading reads another number, the full OCR decides.
 
     Numerator (text, None if a doubt remains): each digit is compared with
     those of the denominator ("10", "20"), which give their shape in the
@@ -778,8 +797,14 @@ def analyze_glyphs(image, capacity=None, reading=""):
         description = f"5 glyphs, similarities {sim_1:.2f}/{sim_0:.2f}"
         if sim_1 < DIFFERENT_SIMILARITY or sim_0 < DIFFERENT_SIMILARITY:
             return False, description, numerator
+        # The numerator never goes above the capacity: at 10/10 and 20/20, the
+        # 2nd digit is surely 0 if the 1st is the right one; at x/10 and x/15, a
+        # 2-digit numerator surely starts with 1. Only the other digits are
+        # compared (at 10/10, 5 glyphs are enough).
+        to_compare = [s for s, digit, obvious in ((sim_1, digits[:1], "1"), (sim_0, digits[1:], "0"))
+                      if digit != obvious]
         read_elsewhere = re.fullmatch(r"\d{2}/\d{2}", reading) and not full_vote(reading)
-        if sim_1 >= SAME_SIMILARITY and sim_0 >= SAME_SIMILARITY and not read_elsewhere:
+        if all(s >= SAME_SIMILARITY for s in to_compare) and not read_elsewhere:
             return True, description, digits or None
         return None, description, numerator
 

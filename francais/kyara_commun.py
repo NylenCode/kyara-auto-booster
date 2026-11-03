@@ -56,11 +56,13 @@ OCR_VERBEUX = False
 # l'indicateur coloré à gauche ou un autre élément d'interface.
 ECART_MAX_GLYPHES = 3
 # Ressemblance (corrélation des niveaux de gris, -1 à 1) de deux glyphes,
-# mesurée sur les vraies captures : un même chiffre donne 0.87 à 1.00, deux
-# chiffres différents 0.81 au plus (« 3 » et « 5 » ; zéro barré et « 5 » :
-# 0.78). Au moins SIMILARITE_MEME : même chiffre. Moins de
-# SIMILARITE_DIFFERENTE : chiffres différents. Entre les deux : doute, OCR.
-SIMILARITE_MEME = 0.85
+# mesurée sur les vraies captures : un même chiffre donne 0.87 à 1.00 (0.87 :
+# deux « 1 » sous une pastille « +1 »), deux chiffres différents 0.86 au plus
+# (« 8 » et zéro barré ; « 3 » et « 5 » : 0.81). Au moins SIMILARITE_MEME :
+# même chiffre. Moins de SIMILARITE_DIFFERENTE : chiffres différents. Entre
+# les deux : doute. Seuls les chiffres qui comptent sont comparés (voir
+# analyser_glyphes) : le doute y est rare.
+SIMILARITE_MEME = 0.88
 SIMILARITE_DIFFERENTE = 0.83
 # Retourné à 180°, le zéro barré reste presque le même (0.72 à 0.78 sur les
 # vraies captures), pas le « 6 » (0.32) : il tranche quand l'OCR lit l'un des
@@ -561,72 +563,89 @@ def segmenter_glyphes(image, durcissement=0, avec_position=False, avec_boites=Fa
             [pixels[x, y] <= seuil_texte for x in range(largeur)]
             for y in range(hauteur)
         ]
-    colonnes = [sum(masque[y][x] for y in range(hauteur)) for x in range(largeur)]
+    def decouper(y0, y1):
+        colonnes = [sum(masque[y][x] for y in range(y0, y1)) for x in range(largeur)]
 
-    blocs = []
-    x = 0
-    while x < largeur:
-        if colonnes[x]:
-            debut = x
-            while x < largeur and colonnes[x]:
+        blocs = []
+        x = 0
+        while x < largeur:
+            if colonnes[x]:
+                debut = x
+                while x < largeur and colonnes[x]:
+                    x += 1
+                blocs.append((debut, x))
+            else:
                 x += 1
-            blocs.append((debut, x))
-        else:
-            x += 1
 
-    groupes = []
-    for bloc in blocs:
-        if groupes and bloc[0] - groupes[-1][-1][1] <= ECART_MAX_GLYPHES:
-            groupes[-1].append(bloc)
-        else:
-            groupes.append([bloc])
+        groupes = []
+        for bloc in blocs:
+            if groupes and bloc[0] - groupes[-1][-1][1] <= ECART_MAX_GLYPHES:
+                groupes[-1].append(bloc)
+            else:
+                groupes.append([bloc])
 
-    if not groupes:
-        return None
+        if not groupes:
+            return None
 
-    # Le texte est le groupe qui a le plus de glyphes.
-    groupe = max(groupes, key=lambda g: (len(g), g[-1][1] - g[0][0]))
-    if not 3 <= len(groupe) <= 5:
-        return None
+        # Le texte est le groupe qui a le plus de glyphes.
+        groupe = max(groupes, key=lambda g: (len(g), g[-1][1] - g[0][0]))
+        if not 3 <= len(groupe) <= 5:
+            return None
 
-    largeurs = sorted(fin - debut for debut, fin in groupe)
-    mediane = largeurs[len(largeurs) // 2]
+        largeurs = sorted(fin - debut for debut, fin in groupe)
+        mediane = largeurs[len(largeurs) // 2]
 
-    # Deux glyphes collés (anticrénelage) : on coupe aux colonnes les plus vides.
-    decoupe = []
-    for debut, fin in groupe:
-        nombre = round((fin - debut) / (mediane + 1))
-        if (fin - debut) <= mediane * 1.6 or nombre < 2:
-            decoupe.append((debut, fin))
-            continue
-        coupures = []
-        for i in range(1, nombre):
-            attendu = debut + (fin - debut) * i // nombre
-            proches = range(max(debut + 1, attendu - 2), min(fin - 1, attendu + 3))
-            coupures.append(min(proches, key=lambda c: colonnes[c]))
-        bornes = [debut] + coupures + [fin]
-        decoupe.extend(zip(bornes[:-1], bornes[1:]))
-    groupe = decoupe
+        # Deux glyphes collés (anticrénelage) : on coupe aux colonnes les plus vides.
+        decoupe = []
+        for debut, fin in groupe:
+            nombre = round((fin - debut) / (mediane + 1))
+            if (fin - debut) <= mediane * 1.6 or nombre < 2:
+                decoupe.append((debut, fin))
+                continue
+            coupures = []
+            for i in range(1, nombre):
+                attendu = debut + (fin - debut) * i // nombre
+                proches = range(max(debut + 1, attendu - 2), min(fin - 1, attendu + 3))
+                coupures.append(min(proches, key=lambda c: colonnes[c]))
+            bornes = [debut] + coupures + [fin]
+            decoupe.extend(zip(bornes[:-1], bornes[1:]))
+        groupe = decoupe
 
-    if len(groupe) not in (4, 5):
-        return None
-    largeurs = sorted(fin - debut for debut, fin in groupe)
-    if largeurs[0] < mediane * 0.5 or largeurs[-1] > mediane * 1.6:
-        return None
+        if len(groupe) not in (4, 5):
+            return None
+        largeurs = sorted(fin - debut for debut, fin in groupe)
+        if largeurs[0] < mediane * 0.5 or largeurs[-1] > mediane * 1.6:
+            return None
 
-    glyphes = []
-    hauts, bas = [], []
-    for debut, fin in groupe:
-        lignes = [y for y in range(hauteur) if any(masque[y][debut:fin])]
-        glyphes.append([masque[y][debut:fin] for y in range(lignes[0], lignes[-1] + 1)])
-        hauts.append(lignes[0])
-        bas.append(lignes[-1] + 1)
+        glyphes = []
+        hauts, bas = [], []
+        for debut, fin in groupe:
+            lignes = [y for y in range(y0, y1) if any(masque[y][debut:fin])]
+            glyphes.append([masque[y][debut:fin] for y in range(lignes[0], lignes[-1] + 1)])
+            hauts.append(lignes[0])
+            bas.append(lignes[-1] + 1)
 
-    if avec_boites:
-        return glyphes, [(debut, fin, h, b) for (debut, fin), h, b in zip(groupe, hauts, bas)]
-    if avec_position:
-        return glyphes, (groupe[0][0], groupe[-1][1], min(hauts), max(bas))
-    return glyphes
+        if avec_boites:
+            return glyphes, [(debut, fin, h, b) for (debut, fin), h, b in zip(groupe, hauts, bas)]
+        if avec_position:
+            return glyphes, (groupe[0][0], groupe[-1][1], min(hauts), max(bas))
+        return glyphes
+
+    # Bandes de lignes où il y a du texte : une pastille posée au-dessus du
+    # compteur (« +1 ») ne doit pas se mêler aux colonnes des chiffres. Toute
+    # la hauteur d'abord, puis chaque bande seule.
+    bandes = []
+    for y in range(hauteur):
+        if any(masque[y]):
+            if bandes and bandes[-1][1] == y:
+                bandes[-1][1] = y + 1
+            else:
+                bandes.append([y, y + 1])
+    for y0, y1 in [(0, hauteur)] + (bandes if len(bandes) > 1 else []):
+        resultat = decouper(y0, y1)
+        if resultat is not None:
+            return resultat
+    return None
 
 
 def est_barre_oblique(glyphe):
@@ -719,8 +738,10 @@ def analyser_glyphes(image, capacite=None, lecture=""):
     passer à l'OCR. Plein : le nombre avant le « / » a les mêmes glyphes que
     celui d'après (10/10, 25/25), quelle que soit la capacité. Un seul des deux
     chiffres nettement différent : pas plein, sans OCR (20/25 ne diffère que
-    par le 2e chiffre, 15/25 que par le 1er). Si les glyphes disent plein mais
-    que la lecture OCR rapide lit un autre nombre, l'OCR complet tranche.
+    par le 2e chiffre, 15/25 que par le 1er). Chiffre que la capacité impose
+    (le 1 de 10/10, le 0 de 20/20) : seulement pas nettement différent. Si
+    les glyphes disent plein mais que la lecture OCR rapide lit un autre
+    nombre, l'OCR complet tranche.
 
     Numérateur (texte, None s'il reste un doute) : chaque chiffre est comparé
     à ceux du dénominateur (« 10 », « 20 »), qui donnent leur forme dans la
@@ -778,8 +799,14 @@ def analyser_glyphes(image, capacite=None, lecture=""):
         description = f"5 glyphes, similarités {sim_1:.2f}/{sim_0:.2f}"
         if sim_1 < SIMILARITE_DIFFERENTE or sim_0 < SIMILARITE_DIFFERENTE:
             return False, description, numerateur
+        # Le numérateur ne dépasse jamais la capacité : à 10/10 et 20/20, le
+        # 2e chiffre est forcément 0 si le 1er est le bon ; à x/10 et x/15, un
+        # numérateur à 2 chiffres commence forcément par 1. Seuls les autres
+        # chiffres sont comparés (à 10/10, 5 glyphes suffisent).
+        a_comparer = [s for s, chiffre, evident in ((sim_1, chiffres[:1], "1"), (sim_0, chiffres[1:], "0"))
+                      if chiffre != evident]
         lu_ailleurs = re.fullmatch(r"\d{2}/\d{2}", lecture) and not voix_plein(lecture)
-        if sim_1 >= SIMILARITE_MEME and sim_0 >= SIMILARITE_MEME and not lu_ailleurs:
+        if all(s >= SIMILARITE_MEME for s in a_comparer) and not lu_ailleurs:
             return True, description, chiffres or None
         return None, description, numerateur
 
