@@ -113,6 +113,8 @@ _kernel32.GetModuleHandleW.argtypes = (ctypes.c_wchar_p,)
 POSITION = r"(?P<pos>\(-?\d+, -?\d+\))"
 BUTTON_5_LABEL = ("the \"×5\" button of a pack page, left of \"×10\" (optional: "
                   "opens the 5 boosters left of a counter at 15 or 25)")
+RED_COUNTER_LABEL = ("the red counter \"x/20 boosters gratuits\" (optional: read when "
+                     "the top counter is doubtful): point at the number just before the \"/\"")
 SCROLL = r'(?P<scr>, "scroll": (?P<notches>\d+))?'
 ELEMENTS = (
     (rf"^COUNTER_CENTER = {POSITION}",
@@ -128,6 +130,7 @@ ELEMENTS = (
     (rf'^\s*\("reveal_all", {POSITION}',
      lambda m: "the « Tout révéler » (Reveal all) button (screen of the cards to turn)", False),
     (rf"^BUTTON_5_BOOSTERS = {POSITION}", lambda m: BUTTON_5_LABEL, False),
+    (rf"^RED_COUNTER = {POSITION}", lambda m: RED_COUNTER_LABEL, False),
 )
 NOT_SET = "(0, 0)"
 EXECUTABLE_PATTERN = re.compile(r'^EXECUTABLE = (?P<val>"[^"]*")', re.MULTILINE)
@@ -159,6 +162,11 @@ SCREEN_AREA = (0, 0, 0, 0)
 COUNTER_CENTER = (0, 0)
 # Size of the area read around the center (width, height). Leave as is.
 COUNTER_SIZE = (100, 45)
+# Red counter "1/20 boosters gratuits · +1 dans …" (optional): same
+# pointing as the top counter. Read when the top one is doubtful ("+8"
+# badge placed over it, cut digit…): each one repairs the other.
+# (0, 0) = not placed: only the top counter is read.
+RED_COUNTER = (0, 0)
 # Number of "full counter" readings in a row before opening (avoids a
 # wrong reading).
 STABLE_READINGS = 2
@@ -722,9 +730,13 @@ def find_elements(text, all_=False):
     return sorted(found)
 
 
+# Positions that can stay at (0, 0).
+OPTIONAL = (BUTTON_5_LABEL, RED_COUNTER_LABEL)
+
+
 def to_set(text):
     return [label for _, _, label, current, _ in find_elements(text)
-            if current == NOT_SET and label != BUTTON_5_LABEL]
+            if current == NOT_SET and label not in OPTIONAL]
 
 
 def unknown_browser(text):

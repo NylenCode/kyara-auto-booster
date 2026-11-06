@@ -166,6 +166,12 @@ SOMMAIRE
       puis remet tout comme avant.
     - Le navigateur ne doit PAS être réduit dans la barre des tâches.
     - Le popup « Tu es toujours là ? » est géré tout seul.
+    - Bulle « Kyara redémarre pour une mise à jour » : le programme se
+      met en pause (aucun clic, même au milieu d'une ouverture) et
+      reprend tout seul quand elle a disparu.
+    - Compteur rouge « 1/20 boosters gratuits » (facultatif, menu 3) :
+      s'il est placé, il est relu quand le compteur du haut est douteux
+      (pastille « +8 » posée dessus, chiffre coupé…). L'un répare l'autre.
     - S'il manque un réglage, le programme dit lequel au démarrage et
       refuse de cliquer au hasard. Lance alors l'assistant
       (python configurer_positions.py) : il te demandera ce qui manque.

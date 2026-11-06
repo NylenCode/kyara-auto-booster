@@ -34,6 +34,11 @@ SCREEN_AREA = (0, 0, 0, 0)
 COUNTER_CENTER = (0, 0)
 # Size of the area read around the center (width, height). Leave as is.
 COUNTER_SIZE = (100, 45)
+# Red counter "1/20 boosters gratuits · +1 dans …" (optional): same
+# pointing as the top counter. Read when the top one is doubtful ("+8"
+# badge placed over it, cut digit…): each one repairs the other.
+# (0, 0) = not placed: only the top counter is read.
+RED_COUNTER = (0, 0)
 # Number of "full counter" readings in a row before opening (avoids a
 # wrong reading).
 STABLE_READINGS = 2
@@ -636,7 +641,7 @@ def main():
 
     detector = CounterDetector(
         NAME, COUNTER_CENTER, COUNTER_SIZE, stable_readings=STABLE_READINGS,
-        capacity=account_capacity(current_account),
+        capacity=account_capacity(current_account), backup=RED_COUNTER,
     )
     counter_detector = detector
     popup = PopupWatcher(NAME, SCREEN_AREA, POPUP_INTERVAL)

@@ -632,8 +632,8 @@ def segmenter_glyphes(image, durcissement=0, avec_position=False, avec_boites=Fa
         return glyphes
 
     # Bandes de lignes où il y a du texte : une pastille posée au-dessus du
-    # compteur (« +1 ») ne doit pas se mêler aux colonnes des chiffres. Toute
-    # la hauteur d'abord, puis chaque bande seule.
+    # compteur (« +1 ») ne doit pas se mêler aux colonnes des chiffres. Chaque
+    # bande seule d'abord, puis toute la hauteur.
     bandes = []
     for y in range(hauteur):
         if any(masque[y]):
@@ -641,7 +641,7 @@ def segmenter_glyphes(image, durcissement=0, avec_position=False, avec_boites=Fa
                 bandes[-1][1] = y + 1
             else:
                 bandes.append([y, y + 1])
-    for y0, y1 in [(0, hauteur)] + (bandes if len(bandes) > 1 else []):
+    for y0, y1 in (bandes if len(bandes) > 1 else []) + [(0, hauteur)]:
         resultat = decouper(y0, y1)
         if resultat is not None:
             return resultat
@@ -783,10 +783,17 @@ def analyser_glyphes(image, capacite=None, lecture=""):
             elif len(lu) == barre and not any(
                     len(chiffres) == 2 and lu[k] == chiffres[j] and s < SIMILARITE_DIFFERENTE
                     for j, s in enumerate(ressemblances)):
-                if lu[k] in "06":
+                zero = chiffres.find("0") if len(chiffres) == 2 else -1
+                if lu[k] in "06" and zero >= 0 and ressemblances[zero] < SIMILARITE_DIFFERENTE:
+                    # Nettement différent du 0 du dénominateur : pas un 0.
+                    numerateur += "6"
+                elif lu[k] in "06":
                     numerateur += "0" if symetrie(gris, boites[k]) >= SYMETRIE_ZERO else "6"
                 else:
                     numerateur += lu[k]
+            elif barre == 1 and not lu and symetrie(gris, boites[k]) >= SYMETRIE_ZERO:
+                # Chiffre seul que l'OCR n'a pas vu (« /15 ») : le zéro barré.
+                numerateur += "0"
             else:
                 numerateur = None
                 break
@@ -832,9 +839,16 @@ class DetecteurCompteur:
       relu à chaque changement : comptes avec ou sans abonnement).
     """
 
+    # Messages « compteur retrouvé / introuvable » du recalage.
+    MESSAGES_RECALAGE = True
+
     def __init__(self, navigateur, centre, taille=(100, 45), lectures_stables=2,
-                 capacite=0):
+                 capacite=0, secours=(0, 0)):
         self.navigateur = navigateur
+        # Compteur rouge « x/20 boosters gratuits », relu en cas de doute
+        # (None si sa position n'est pas placée).
+        self.secours = (CompteurSecours(navigateur, secours, taille)
+                        if tuple(secours) != (0, 0) else None)
         # Capacité max du compteur (10, 20…) ; 0 = lue à l'écran.
         self.capacite = capacite
         self.capacite_lue = capacite or None
@@ -877,6 +891,8 @@ class DetecteurCompteur:
         """À appeler après une ouverture : le compteur doit être relu à neuf."""
         self._signature = None
         self.consecutifs = 0
+        if self.secours is not None:
+            self.secours.reinitialiser()
 
     def compteur_visible(self):
         """Vrai si le compteur est à sa place : encore sur la page d'accueil."""
@@ -893,6 +909,8 @@ class DetecteurCompteur:
             self.capacite = capacite
             self.capacite_lue = capacite or None
             self._capacite_a_confirmer = None
+            if self.secours is not None:
+                self.secours.changer_capacite(capacite)
             self.reinitialiser()
 
     def _texte_au_bord(self, image):
@@ -920,13 +938,14 @@ class DetecteurCompteur:
             LARGEUR_RECHERCHE,
             HAUTEUR_RECHERCHE,
         )
-        image = capturer_zone(bande)
+        image = self._capturer(bande)
         image.save(self.image_debug_recherche)
 
         centre = localiser_compteur(image, self.taille)
         if centre is None:
             # Message limité à un toutes les quelques minutes.
-            if time.monotonic() - self._dernier_message_introuvable >= RAPPEL_INTROUVABLE:
+            if (self.MESSAGES_RECALAGE and time.monotonic() - self._dernier_message_introuvable
+                    >= RAPPEL_INTROUVABLE):
                 print(
                     f"{self.prefixe} Compteur introuvable autour de {self.centre_prevu} "
                     f"(image : {self.image_debug_recherche}). Nouvel essai toutes "
@@ -938,11 +957,15 @@ class DetecteurCompteur:
         x, y = bande[0] + centre[0], bande[1] + centre[1]
         self._placer((x, y))
         self._signature = None
-        print(
-            f"{self.prefixe} Compteur retrouvé en ({int(x)}, {int(y)}) : "
-            f"zone recalée sur {self.region}."
-        )
+        if self.MESSAGES_RECALAGE:
+            print(
+                f"{self.prefixe} Compteur retrouvé en ({int(x)}, {int(y)}) : "
+                f"zone recalée sur {self.region}."
+            )
         return True
+
+    def _capturer(self, region):
+        return capturer_zone(region)
 
     @staticmethod
     def _recadrer(image):
@@ -952,7 +975,7 @@ class DetecteurCompteur:
         """
         for durcissement in DURCISSEMENTS_SEUIL:
             resultat = segmenter_glyphes(image, durcissement, avec_position=True)
-            if resultat is not None:
+            if resultat is not None and est_barre_oblique(resultat[0][-3]):
                 x0, x1, y0, y1 = resultat[1]
                 marge = 4
                 return image.crop((max(0, x0 - marge), max(0, y0 - marge),
@@ -1055,7 +1078,7 @@ class DetecteurCompteur:
                 print(f"{self.prefixe} [ERREUR RECALAGE] {erreur}")
 
         try:
-            image = capturer_zone(self.region)
+            image = self._capturer(self.region)
         except Exception as erreur:
             print(f"{self.prefixe} [ERREUR CAPTURE] {erreur}")
             self.consecutifs = 0
@@ -1095,6 +1118,8 @@ class DetecteurCompteur:
         self.lisible = valeur != "?"
         if not eteint:
             self._illisibles = 0 if self.lisible else self._illisibles + 1
+        if self.secours is not None and not eteint:
+            plein_brut, valeur, detail = self._verifier_secours(plein_brut, valeur, detail)
         self.consecutifs = self.consecutifs + 1 if plein_brut else 0
         plein = self.consecutifs >= self.lectures_stables
 
@@ -1110,6 +1135,28 @@ class DetecteurCompteur:
 
         signaler_compteur(self.navigateur, plein)
         return plein
+
+    def _verifier_secours(self, plein, valeur, detail):
+        """
+        Relit le compteur rouge « x/20 boosters gratuits ». Il remplace la
+        lecture du haut quand elle est douteuse (« ? », valeur impossible comme
+        « 59/10 », OCR de secours) ou quand lui seul dit plein : un compteur mal
+        lu ne bloque plus les ouvertures, l'autre prend le relais.
+        """
+        try:
+            autre = self.secours.lire_valeur()
+        except Exception:
+            return plein, valeur, detail
+        if autre is None:
+            return plein, valeur, detail
+        plein_rouge, valeur_rouge, detail_rouge = autre
+        if self.capacite_lue is None and self.secours.capacite_lue:
+            self.capacite_lue = self.secours.capacite_lue
+        m = re.fullmatch(r"(\d{1,2})/(\d{2})", valeur)
+        douteux = not m or int(m[1]) > int(m[2]) or "OCR" in detail
+        if douteux or (plein_rouge and not plein):
+            return plein_rouge, valeur_rouge, f"compteur rouge : {detail_rouge} ; en haut : {valeur}"
+        return plein, valeur, detail
 
     def _apprendre_capacite(self, lu):
         """
@@ -1155,7 +1202,7 @@ class DetecteurCompteur:
             if numerateur is None:
                 if lu is None:
                     lu = self._lecture_rapide(image)
-                numerateur = lu.split("/")[0] if "/" in lu else "?"
+                numerateur = (lu.split("/")[0] if "/" in lu else "") or "?"
             return False, f"{numerateur}/{total}", detail
 
         plein, lectures = self._lire_ocr(image)
@@ -1172,6 +1219,58 @@ class DetecteurCompteur:
             numerateur = numerateur or valides[0].split("/")[0]
         valeur = f"{numerateur}/{self.capacite_lue or '?'}" if valides else "?"
         return False, valeur, f"{detail}, OCR : {lectures}"
+
+
+
+def garder_rouge(image):
+    """
+    Ne garde que les pixels rouges (chiffres du compteur rouge), clairs sur
+    fond noir : le texte gris, le minuteur blanc et le fond disparaissent.
+    """
+    gris = Image.new("L", image.size)
+    gris.putdata([
+        r - max(g, b) if r >= 80 and r > 1.8 * max(g, b) else 0
+        for r, g, b in image.convert("RGB").getdata()
+    ])
+    return gris.convert("RGB")
+
+
+class CompteurSecours(DetecteurCompteur):
+    """
+    Compteur rouge « 1/20 boosters gratuits · +1 dans 00:05:27 ». Lu comme le
+    compteur du haut, mais sur ses seuls chiffres rouges (garder_rouge) : le
+    minuteur, qui change chaque seconde, n'oblige pas à tout relire. Discret :
+    il peut ne pas être visible sur la page affichée.
+    """
+    MESSAGES_RECALAGE = False
+
+    def __init__(self, navigateur, centre, taille):
+        super().__init__(f"{navigateur}_rouge", centre, taille)
+        self.prefixe = f"[{navigateur.upper()}] (compteur rouge)"
+        self._resultat = None
+
+    def _capturer(self, region):
+        return garder_rouge(capturer_zone(region))
+
+    def lire_valeur(self):
+        """(plein, valeur, détail) du compteur rouge, ou None s'il n'est pas lu sûrement."""
+        if (
+            (self._illisibles >= ILLISIBLES_AVANT_RECALAGE or self._au_bord)
+            and time.monotonic() - self._dernier_recalage >= DELAI_ENTRE_RECALAGES
+        ):
+            self.recaler()
+        image = self._capturer(self.region)
+        signature = hashlib.md5(image.tobytes()).digest()
+        if signature != self._signature:
+            image.save(self.image_debug)
+            self._au_bord = self._texte_au_bord(image)
+            plein, valeur, detail = self._analyser(image)
+            m = re.fullmatch(r"(\d{1,2})/(\d{2})", valeur)
+            sur = m and int(m[1]) <= int(m[2])
+            self._resultat = (plein, valeur, detail) if sur else None
+            self._signature = signature
+        self._illisibles = 0 if self._resultat else self._illisibles + 1
+        return self._resultat
 
 
 # ============================================================
@@ -1377,11 +1476,135 @@ class SurveillancePopup:
         return True
 
 
+
+# ============================================================
+# BULLE « KYARA REDÉMARRE POUR UNE MISE À JOUR »
+# ============================================================
+# Mots cherchés dans la bulle (sans accents) : un seul suffit.
+MOTS_MISE_A_JOUR = ("redemarre", "redemarrage", "maintenance")
+# Pendant la pause, un regard toutes les N secondes.
+VERIFICATION_MISE_A_JOUR = 2
+# Attente après la disparition de la bulle, le temps que le jeu revienne.
+ATTENTE_APRES_MISE_A_JOUR = 10
+# Rappel dans le terminal pendant une longue pause, en secondes.
+RAPPEL_MISE_A_JOUR = 60
+
+
+def blocs_rouges(masque, facteur=2):
+    """Cadres (x0, y0, x1, y1), en pixels de l'écran, des blocs d'un masque."""
+    largeur, hauteur = masque.size
+    lignes = masque.resize((1, hauteur), Image.Resampling.BOX)
+    bandes, debut = [], None
+    for y in range(hauteur + 1):
+        plein = y < hauteur and lignes.getpixel((0, y)) > 0
+        if plein and debut is None:
+            debut = y
+        elif not plein and debut is not None:
+            bandes.append((debut, y))
+            debut = None
+    blocs = []
+    for y0, y1 in bandes:
+        colonnes = masque.crop((0, y0, largeur, y1)).resize((largeur, 1), Image.Resampling.BOX)
+        debut = None
+        for x in range(largeur + 1):
+            plein = x < largeur and colonnes.getpixel((x, 0)) > 0
+            if plein and debut is None:
+                debut = x
+            elif not plein and debut is not None:
+                blocs.append((debut * facteur, y0 * facteur, x * facteur, y1 * facteur))
+                debut = None
+    return blocs
+
+
+class SurveillanceMiseAJour:
+    """
+    Bulle « Hey ! Kyara redémarre pour une mise à jour » (jeu relancé, attaque
+    DDoS…) : tant qu'elle est là, aucun clic, même au milieu d'une ouverture.
+    Repérée par son rond rouge, puis confirmée par l'OCR du texte à côté
+    (relancé seulement quand les blocs rouges de l'écran changent).
+    """
+
+    def __init__(self, navigateur, zone):
+        self.prefixe = f"[{navigateur.upper()}]"
+        self.zone = zone
+        self.image_debug = DOSSIER_DEBUG / f"debug_mise_a_jour_{navigateur}.png"
+        self._signature = None
+        self._visible = False
+
+    def _texte_a_cote(self, image, bloc):
+        x0, y0, x1, y1 = bloc
+        zone = image.crop((max(0, x0 - 10), max(0, y0 - 30),
+                           min(image.width, x1 + 450), min(image.height, y1 + 60)))
+        gris = ImageOps.autocontrast(ImageOps.grayscale(zone))
+        gris = gris.resize((gris.width * 2, gris.height * 2), Image.Resampling.LANCZOS)
+        mots = normaliser_texte(pytesseract.image_to_string(gris, config="--oem 3 --psm 6")).split()
+        return any(distance(mot, cherche) <= 2 for mot in mots for cherche in MOTS_MISE_A_JOUR)
+
+    def visible(self):
+        """Vrai si la bulle de mise à jour est à l'écran."""
+        try:
+            image = capturer_zone(self.zone)
+            # Rond rouge d'au moins ~6 x 6 px pleins (son dessin le découpe).
+            petite = image.reduce(2)
+            r, g, b = petite.split()
+            rouge = r.point(lambda v: 255 if v >= 150 else 0)
+            for canal in (g, b):
+                rouge = ImageChops.multiply(rouge, ImageChops.subtract(
+                    r, canal.point(lambda v: min(255, 2 * v))).point(lambda v: 255 if v else 0))
+            masque = rouge.filter(ImageFilter.MinFilter(3))
+            signature = hashlib.md5(masque.tobytes()).digest()
+            if signature == self._signature:
+                return self._visible
+            ronds = [bloc for bloc in blocs_rouges(masque)
+                     if 8 <= bloc[2] - bloc[0] <= 80 and 8 <= bloc[3] - bloc[1] <= 80]
+            self._visible = any(self._texte_a_cote(image, bloc) for bloc in ronds[:8])
+            self._signature = signature
+            if self._visible:
+                image.save(self.image_debug)
+            return self._visible
+        except Exception as erreur:
+            print(f"{self.prefixe} [ERREUR MISE À JOUR] {erreur}")
+            return False
+
+    def attendre(self):
+        """Pause tant que la bulle est là. Renvoie True s'il y a eu une pause."""
+        if not self.visible():
+            return False
+        debut = rappel = time.monotonic()
+        print(f"{self.prefixe} Kyara redémarre pour une mise à jour : script en pause, "
+              "aucun clic jusqu'à la fin.")
+        while True:
+            while self.visible():
+                time.sleep(VERIFICATION_MISE_A_JOUR)
+                if time.monotonic() - rappel >= RAPPEL_MISE_A_JOUR:
+                    rappel = time.monotonic()
+                    print(f"{self.prefixe} Toujours en pause : mise à jour de Kyara en cours "
+                          f"({int(rappel - debut) // 60} min).")
+            time.sleep(ATTENTE_APRES_MISE_A_JOUR)
+            if not self.visible():
+                break
+        print(f"{self.prefixe} Mise à jour de Kyara terminée "
+              f"({int(time.monotonic() - debut)} s) : reprise.")
+        return True
+
+
+_mise_a_jour = None
+
+
+def suivre_mise_a_jour(navigateur, zone):
+    """Active la pause automatique pendant les mises à jour de Kyara (avant chaque clic)."""
+    global _mise_a_jour
+    _mise_a_jour = SurveillanceMiseAJour(navigateur, zone)
+    return _mise_a_jour
+
+
 # ============================================================
 # CLICS
 # ============================================================
 def cliquer(navigateur, position, description="", attente=0.5, double=False):
     """Fait glisser le curseur jusqu'à la cible (sans téléportation), puis clique."""
+    if _mise_a_jour is not None:
+        _mise_a_jour.attendre()
     x, y = position
     action = "Double-clic" if double else "Clic"
     if _fenetre is not None and not _fenetre.sous_le_curseur(position):
@@ -1413,6 +1636,8 @@ def defiler(navigateur, position, crans, description=""):
     Remonte tout en haut de la page, puis descend de `crans` crans de molette,
     souris sur `position` : la page se retrouve toujours au même endroit.
     """
+    if _mise_a_jour is not None:
+        _mise_a_jour.attendre()
     x, y = position
     if _fenetre is not None and not _fenetre.sous_le_curseur(position):
         print(f"[{navigateur.upper()}] Molette annulée : {description or position}, "
@@ -1466,6 +1691,7 @@ def boucle_principale(navigateur, detecteur, popup, sequence, intervalle=2,
     liberer_au_demarrage(navigateur)
     detecteur.zone_ecran = popup.zone
     suivre_fenetre(navigateur, popup.zone)
+    mise_a_jour = suivre_mise_a_jour(navigateur, popup.zone)
 
     try:
         print(f"{prefixe} Tesseract : {pytesseract.get_tesseract_version()}")
@@ -1480,6 +1706,9 @@ def boucle_principale(navigateur, detecteur, popup, sequence, intervalle=2,
     try:
         while True:
             try:
+                if mise_a_jour.attendre():
+                    detecteur.reinitialiser()
+                    continue
                 if not detecteur.ecran_eteint:
                     popup.verifier(urgent=not detecteur.lisible)
                     if a_chaque_tour:

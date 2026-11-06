@@ -19,6 +19,8 @@ Ouvre tes boosters **Kyara** tout seul, dès que le compteur est plein.
 - **Plusieurs comptes** : reconnaît le compte connecté à sa photo de profil ; chaque compte peut avoir ses packs et la capacité de son compteur.
 - **Plusieurs navigateurs en même temps** (ex. Opera + Brave) : les scripts se passent la souris chacun leur tour.
 - Gère le popup « Tu es toujours là ? ».
+- **Pause pendant les mises à jour de Kyara** (bulle « Kyara redémarre pour une mise à jour ») : aucun clic jusqu'au retour du jeu, même au milieu d'une ouverture.
+- **Compteur rouge de secours** facultatif (« 1/20 boosters gratuits ») : relu quand le compteur du haut est douteux, une mauvaise lecture ne bloque plus les ouvertures.
 - Le navigateur peut rester derrière d'autres fenêtres ; la souris glisse comme une vraie main.
 - **Aucun fichier à modifier à la main** : un assistant (`configurer_positions.py`) pose des questions simples. Tu mets la souris sur chaque bouton et tu appuies sur **G**.
 

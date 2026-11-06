@@ -34,6 +34,11 @@ ZONE_ECRAN = (0, 0, 0, 0)
 COMPTEUR_CENTRE = (0, 0)
 # Taille de la zone lue autour du centre (largeur, hauteur). Laisser tel quel.
 COMPTEUR_TAILLE = (100, 45)
+# Compteur rouge « 1/20 boosters gratuits · +1 dans … » (facultatif) : même
+# pointage que le compteur du haut. Relu quand celui du haut est douteux
+# (pastille « +8 » posée dessus, chiffre coupé…) : l'un répare l'autre.
+# (0, 0) = pas placé : seul le compteur du haut est lu.
+COMPTEUR_ROUGE = (0, 0)
 # Nombre de lectures « compteur plein » d'affilée avant d'ouvrir (évite une
 # fausse lecture).
 LECTURES_STABLES = 2
@@ -634,7 +639,7 @@ def main():
 
     detecteur = DetecteurCompteur(
         NOM, COMPTEUR_CENTRE, COMPTEUR_TAILLE, lectures_stables=LECTURES_STABLES,
-        capacite=capacite_compte(compte_actuel),
+        capacite=capacite_compte(compte_actuel), secours=COMPTEUR_ROUGE,
     )
     detecteur_compteur = detecteur
     popup = SurveillancePopup(NOM, ZONE_ECRAN, INTERVALLE_POPUP)

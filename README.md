@@ -19,6 +19,8 @@ Opens your **Kyara** boosters automatically, as soon as the counter is full.
 - **Several accounts**: recognizes the logged-in account by its profile picture; each account can have its own packs and its own counter capacity.
 - **Several browsers at the same time** (e.g. Opera + Brave): the scripts take turns with the mouse.
 - Handles the « Tu es toujours là ? » ("Are you still there?") popup.
+- **Pauses during Kyara updates** (« Kyara redémarre pour une mise à jour » bubble): no click until the game is back, even in the middle of an opening.
+- Optional **red backup counter** (« 1/20 boosters gratuits »): read when the top counter is doubtful, so a misread never blocks the openings.
 - The browser can stay behind other windows; the mouse glides like a real hand.
 - **No file to edit by hand**: an assistant (`configure_positions.py`) asks simple questions. You place the mouse on each button and press **G**.
 

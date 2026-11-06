@@ -168,6 +168,12 @@ CONTENTS
     - The browser must NOT be minimized in the taskbar.
     - The « Tu es toujours là ? » ("Are you still there?") popup is
       handled by itself.
+    - « Kyara redémarre pour une mise à jour » bubble ("Kyara restarts
+      for an update"): the program pauses (no click, even in the middle
+      of an opening) and resumes by itself once it is gone.
+    - Red counter « 1/20 boosters gratuits » (optional, menu 3): if it
+      is placed, it is read when the top counter is doubtful ("+8"
+      badge over it, cut digit…). Each one repairs the other.
     - If a setting is missing, the program says which one at start and
       refuses to click at random. Then run the assistant
       (python configure_positions.py): it will ask for what is missing.

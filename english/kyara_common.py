@@ -631,8 +631,8 @@ def split_glyphs(image, hardening=0, with_position=False, with_boxes=False):
         return glyphs
 
     # Bands of lines with text: a badge placed above the counter ("+1") must
-    # not mix with the columns of the digits. The whole height first, then
-    # each band alone.
+    # not mix with the columns of the digits. Each band alone first, then
+    # the whole height.
     bands = []
     for y in range(height):
         if any(mask[y]):
@@ -640,7 +640,7 @@ def split_glyphs(image, hardening=0, with_position=False, with_boxes=False):
                 bands[-1][1] = y + 1
             else:
                 bands.append([y, y + 1])
-    for y0, y1 in [(0, height)] + (bands if len(bands) > 1 else []):
+    for y0, y1 in (bands if len(bands) > 1 else []) + [(0, height)]:
         result = cut_band(y0, y1)
         if result is not None:
             return result
@@ -781,10 +781,17 @@ def analyze_glyphs(image, capacity=None, reading=""):
             elif len(read) == slash and not any(
                     len(digits) == 2 and read[k] == digits[j] and s < DIFFERENT_SIMILARITY
                     for j, s in enumerate(likenesses)):
-                if read[k] in "06":
+                zero = digits.find("0") if len(digits) == 2 else -1
+                if read[k] in "06" and zero >= 0 and likenesses[zero] < DIFFERENT_SIMILARITY:
+                    # Clearly different from the 0 of the denominator: not a 0.
+                    numerator += "6"
+                elif read[k] in "06":
                     numerator += "0" if symmetry(gray, boxes[k]) >= ZERO_SYMMETRY else "6"
                 else:
                     numerator += read[k]
+            elif slash == 1 and not read and symmetry(gray, boxes[k]) >= ZERO_SYMMETRY:
+                # Single digit the OCR did not see ("/15"): the slashed zero.
+                numerator += "0"
             else:
                 numerator = None
                 break
@@ -830,9 +837,16 @@ class CounterDetector:
       read again at each change: accounts with or without a subscription).
     """
 
+    # "Counter found again / not found" messages of the re-centering.
+    RECENTER_MESSAGES = True
+
     def __init__(self, browser, center, size=(100, 45), stable_readings=2,
-                 capacity=0):
+                 capacity=0, backup=(0, 0)):
         self.browser = browser
+        # Red counter "x/20 boosters gratuits", read again in case of doubt
+        # (None if its position is not placed).
+        self.backup = (BackupCounter(browser, backup, size)
+                       if tuple(backup) != (0, 0) else None)
         # Max capacity of the counter (10, 20…); 0 = read on screen.
         self.capacity = capacity
         self.capacity_read = capacity or None
@@ -875,6 +889,8 @@ class CounterDetector:
         """To call after an opening: the counter must be read from scratch."""
         self._signature = None
         self.in_a_row = 0
+        if self.backup is not None:
+            self.backup.reset()
 
     def counter_visible(self):
         """True if the counter is at its place: still on the home page."""
@@ -891,6 +907,8 @@ class CounterDetector:
             self.capacity = capacity
             self.capacity_read = capacity or None
             self._capacity_to_confirm = None
+            if self.backup is not None:
+                self.backup.change_capacity(capacity)
             self.reset()
 
     def _text_at_edge(self, image):
@@ -918,13 +936,14 @@ class CounterDetector:
             SEARCH_WIDTH,
             SEARCH_HEIGHT,
         )
-        image = capture_area(band)
+        image = self._capture(band)
         image.save(self.debug_image_search)
 
         center = locate_counter(image, self.size)
         if center is None:
             # Message limited to one every few minutes.
-            if time.monotonic() - self._last_not_found_message >= NOT_FOUND_REMINDER:
+            if (self.RECENTER_MESSAGES and time.monotonic() - self._last_not_found_message
+                    >= NOT_FOUND_REMINDER):
                 print(
                     f"{self.prefix} Counter not found around {self.expected_center} "
                     f"(image: {self.debug_image_search}). New try every "
@@ -936,11 +955,15 @@ class CounterDetector:
         x, y = band[0] + center[0], band[1] + center[1]
         self._place((x, y))
         self._signature = None
-        print(
-            f"{self.prefix} Counter found again at ({int(x)}, {int(y)}): "
-            f"area re-centered on {self.region}."
-        )
+        if self.RECENTER_MESSAGES:
+            print(
+                f"{self.prefix} Counter found again at ({int(x)}, {int(y)}): "
+                f"area re-centered on {self.region}."
+            )
         return True
+
+    def _capture(self, region):
+        return capture_area(region)
 
     @staticmethod
     def _crop(image):
@@ -950,7 +973,7 @@ class CounterDetector:
         """
         for hardening in THRESHOLD_HARDENINGS:
             result = split_glyphs(image, hardening, with_position=True)
-            if result is not None:
+            if result is not None and is_slash(result[0][-3]):
                 x0, x1, y0, y1 = result[1]
                 margin = 4
                 return image.crop((max(0, x0 - margin), max(0, y0 - margin),
@@ -1053,7 +1076,7 @@ class CounterDetector:
                 print(f"{self.prefix} [RECENTER ERROR] {error}")
 
         try:
-            image = capture_area(self.region)
+            image = self._capture(self.region)
         except Exception as error:
             print(f"{self.prefix} [CAPTURE ERROR] {error}")
             self.in_a_row = 0
@@ -1093,6 +1116,8 @@ class CounterDetector:
         self.readable = value != "?"
         if not off:
             self._unreadable = 0 if self.readable else self._unreadable + 1
+        if self.backup is not None and not off:
+            raw_full, value, detail = self._check_backup(raw_full, value, detail)
         self.in_a_row = self.in_a_row + 1 if raw_full else 0
         full = self.in_a_row >= self.stable_readings
 
@@ -1108,6 +1133,28 @@ class CounterDetector:
 
         report_counter(self.browser, full)
         return full
+
+    def _check_backup(self, full, value, detail):
+        """
+        Reads the red counter "x/20 boosters gratuits" again. It replaces the
+        top reading when that one is doubtful ("?", impossible value like
+        "59/10", fallback OCR) or when it alone says full: a misread counter
+        no longer blocks the openings, the other one takes over.
+        """
+        try:
+            other = self.backup.read_value()
+        except Exception:
+            return full, value, detail
+        if other is None:
+            return full, value, detail
+        red_full, red_value, red_detail = other
+        if self.capacity_read is None and self.backup.capacity_read:
+            self.capacity_read = self.backup.capacity_read
+        m = re.fullmatch(r"(\d{1,2})/(\d{2})", value)
+        doubtful = not m or int(m[1]) > int(m[2]) or "OCR" in detail
+        if doubtful or (red_full and not full):
+            return red_full, red_value, f"red counter: {red_detail}; at the top: {value}"
+        return full, value, detail
 
     def _learn_capacity(self, read):
         """
@@ -1153,7 +1200,7 @@ class CounterDetector:
             if numerator is None:
                 if read is None:
                     read = self._quick_reading(image)
-                numerator = read.split("/")[0] if "/" in read else "?"
+                numerator = (read.split("/")[0] if "/" in read else "") or "?"
             return False, f"{numerator}/{total}", detail
 
         full, readings = self._read_ocr(image)
@@ -1170,6 +1217,58 @@ class CounterDetector:
             numerator = numerator or valid[0].split("/")[0]
         value = f"{numerator}/{self.capacity_read or '?'}" if valid else "?"
         return False, value, f"{detail}, OCR: {readings}"
+
+
+
+def keep_red(image):
+    """
+    Keeps only the red pixels (digits of the red counter), light on a black
+    background: the gray text, the white timer and the background disappear.
+    """
+    gray = Image.new("L", image.size)
+    gray.putdata([
+        r - max(g, b) if r >= 80 and r > 1.8 * max(g, b) else 0
+        for r, g, b in image.convert("RGB").getdata()
+    ])
+    return gray.convert("RGB")
+
+
+class BackupCounter(CounterDetector):
+    """
+    Red counter "1/20 boosters gratuits · +1 dans 00:05:27". Read like the
+    top counter, but on its red digits only (keep_red): the timer, which
+    changes every second, does not force everything to be read again. Quiet:
+    it may not be visible on the page shown.
+    """
+    RECENTER_MESSAGES = False
+
+    def __init__(self, browser, center, size):
+        super().__init__(f"{browser}_red", center, size)
+        self.prefix = f"[{browser.upper()}] (red counter)"
+        self._result = None
+
+    def _capture(self, region):
+        return keep_red(capture_area(region))
+
+    def read_value(self):
+        """(full, value, detail) of the red counter, or None if it is not read surely."""
+        if (
+            (self._unreadable >= UNREADABLE_BEFORE_RECENTER or self._at_edge)
+            and time.monotonic() - self._last_recenter >= DELAY_BETWEEN_RECENTERS
+        ):
+            self.recenter()
+        image = self._capture(self.region)
+        signature = hashlib.md5(image.tobytes()).digest()
+        if signature != self._signature:
+            image.save(self.debug_image)
+            self._at_edge = self._text_at_edge(image)
+            full, value, detail = self._analyze(image)
+            m = re.fullmatch(r"(\d{1,2})/(\d{2})", value)
+            sure = m and int(m[1]) <= int(m[2])
+            self._result = (full, value, detail) if sure else None
+            self._signature = signature
+        self._unreadable = 0 if self._result else self._unreadable + 1
+        return self._result
 
 
 # ============================================================
@@ -1377,11 +1476,135 @@ class PopupWatcher:
         return True
 
 
+
+# ============================================================
+# "KYARA REDÉMARRE POUR UNE MISE À JOUR" BUBBLE
+# ============================================================
+# Words looked for in the bubble (without accents): one is enough.
+UPDATE_WORDS = ("redemarre", "redemarrage", "maintenance")
+# During the pause, one look every N seconds.
+UPDATE_CHECK = 2
+# Wait after the bubble is gone, for the game to come back.
+WAIT_AFTER_UPDATE = 10
+# Reminder in the terminal during a long pause, in seconds.
+UPDATE_REMINDER = 60
+
+
+def red_blocks(mask, factor=2):
+    """Frames (x0, y0, x1, y1), in screen pixels, of the blocks of a mask."""
+    width, height = mask.size
+    lines = mask.resize((1, height), Image.Resampling.BOX)
+    bands, start = [], None
+    for y in range(height + 1):
+        filled = y < height and lines.getpixel((0, y)) > 0
+        if filled and start is None:
+            start = y
+        elif not filled and start is not None:
+            bands.append((start, y))
+            start = None
+    blocks = []
+    for y0, y1 in bands:
+        columns = mask.crop((0, y0, width, y1)).resize((width, 1), Image.Resampling.BOX)
+        start = None
+        for x in range(width + 1):
+            filled = x < width and columns.getpixel((x, 0)) > 0
+            if filled and start is None:
+                start = x
+            elif not filled and start is not None:
+                blocks.append((start * factor, y0 * factor, x * factor, y1 * factor))
+                start = None
+    return blocks
+
+
+class UpdateWatcher:
+    """
+    Bubble "Hey ! Kyara redémarre pour une mise à jour" (game restarted, DDoS
+    attack…): while it is there, no click, even in the middle of an opening.
+    Spotted by its red circle, then confirmed by the OCR of the text beside it
+    (run again only when the red blocks of the screen change).
+    """
+
+    def __init__(self, browser, area):
+        self.prefix = f"[{browser.upper()}]"
+        self.area = area
+        self.debug_image = DEBUG_DIR / f"debug_update_{browser}.png"
+        self._signature = None
+        self._visible = False
+
+    def _text_beside(self, image, block):
+        x0, y0, x1, y1 = block
+        area = image.crop((max(0, x0 - 10), max(0, y0 - 30),
+                           min(image.width, x1 + 450), min(image.height, y1 + 60)))
+        gray = ImageOps.autocontrast(ImageOps.grayscale(area))
+        gray = gray.resize((gray.width * 2, gray.height * 2), Image.Resampling.LANCZOS)
+        words = normalize_text(pytesseract.image_to_string(gray, config="--oem 3 --psm 6")).split()
+        return any(distance(word, looked_for) <= 2 for word in words for looked_for in UPDATE_WORDS)
+
+    def visible(self):
+        """True if the update bubble is on screen."""
+        try:
+            image = capture_area(self.area)
+            # Red circle of at least ~6 x 6 full pixels (its drawing cuts it up).
+            small = image.reduce(2)
+            r, g, b = small.split()
+            red = r.point(lambda v: 255 if v >= 150 else 0)
+            for channel in (g, b):
+                red = ImageChops.multiply(red, ImageChops.subtract(
+                    r, channel.point(lambda v: min(255, 2 * v))).point(lambda v: 255 if v else 0))
+            mask = red.filter(ImageFilter.MinFilter(3))
+            signature = hashlib.md5(mask.tobytes()).digest()
+            if signature == self._signature:
+                return self._visible
+            circles = [block for block in red_blocks(mask)
+                       if 8 <= block[2] - block[0] <= 80 and 8 <= block[3] - block[1] <= 80]
+            self._visible = any(self._text_beside(image, block) for block in circles[:8])
+            self._signature = signature
+            if self._visible:
+                image.save(self.debug_image)
+            return self._visible
+        except Exception as error:
+            print(f"{self.prefix} [UPDATE ERROR] {error}")
+            return False
+
+    def wait_if_shown(self):
+        """Pause while the bubble is there. Returns True if there was a pause."""
+        if not self.visible():
+            return False
+        start = reminder = time.monotonic()
+        print(f"{self.prefix} Kyara is restarting for an update: script paused, "
+              "no click until the end.")
+        while True:
+            while self.visible():
+                time.sleep(UPDATE_CHECK)
+                if time.monotonic() - reminder >= UPDATE_REMINDER:
+                    reminder = time.monotonic()
+                    print(f"{self.prefix} Still paused: Kyara update in progress "
+                          f"({int(reminder - start) // 60} min).")
+            time.sleep(WAIT_AFTER_UPDATE)
+            if not self.visible():
+                break
+        print(f"{self.prefix} Kyara update finished "
+              f"({int(time.monotonic() - start)} s): resuming.")
+        return True
+
+
+_update = None
+
+
+def follow_update(browser, area):
+    """Turns on the automatic pause during Kyara updates (before each click)."""
+    global _update
+    _update = UpdateWatcher(browser, area)
+    return _update
+
+
 # ============================================================
 # CLICKS
 # ============================================================
 def click(browser, position, description="", wait=0.5, double=False):
     """Glides the cursor to the target (no teleporting), then clicks."""
+    if _update is not None:
+        _update.wait_if_shown()
     x, y = position
     action = "Double-click" if double else "Click"
     if _window is not None and not _window.under_cursor(position):
@@ -1413,6 +1636,8 @@ def scroll(browser, position, notches, description=""):
     Goes all the way up the page, then scrolls down `notches` wheel notches,
     mouse on `position`: the page always ends up at the same place.
     """
+    if _update is not None:
+        _update.wait_if_shown()
     x, y = position
     if _window is not None and not _window.under_cursor(position):
         print(f"[{browser.upper()}] Scroll cancelled: {description or position}, "
@@ -1466,6 +1691,7 @@ def main_loop(browser, detector, popup, sequence, interval=2,
     release_at_startup(browser)
     detector.screen_area = popup.area
     follow_window(browser, popup.area)
+    update = follow_update(browser, popup.area)
 
     try:
         print(f"{prefix} Tesseract: {pytesseract.get_tesseract_version()}")
@@ -1480,6 +1706,9 @@ def main_loop(browser, detector, popup, sequence, interval=2,
     try:
         while True:
             try:
+                if update.wait_if_shown():
+                    detector.reset()
+                    continue
                 if not detector.screen_off:
                     popup.check(urgent=not detector.readable)
                     if each_pass:

@@ -113,6 +113,8 @@ _kernel32.GetModuleHandleW.argtypes = (ctypes.c_wchar_p,)
 POSITION = r"(?P<pos>\(-?\d+, -?\d+\))"
 LIBELLE_BOUTON_5 = ("le bouton « ×5 » de la page d'un pack, à gauche de « ×10 » (facultatif : "
                     "ouvre les 5 boosters restants d'un compteur à 15 ou 25)")
+LIBELLE_COMPTEUR_ROUGE = ("le compteur rouge « x/20 boosters gratuits » (facultatif : relu quand "
+                          "le compteur du haut est douteux) : pointe sur le nombre juste devant le « / »")
 MOLETTE = r'(?P<mol>, "molette": (?P<crans>\d+))?'
 ELEMENTS = (
     (rf"^COMPTEUR_CENTRE = {POSITION}",
@@ -128,6 +130,7 @@ ELEMENTS = (
     (rf'^\s*\("tout_reveler", {POSITION}',
      lambda m: "le bouton « Tout révéler » (écran des cartes à retourner)", False),
     (rf"^BOUTON_5_BOOSTERS = {POSITION}", lambda m: LIBELLE_BOUTON_5, False),
+    (rf"^COMPTEUR_ROUGE = {POSITION}", lambda m: LIBELLE_COMPTEUR_ROUGE, False),
 )
 NON_DEFINIE = "(0, 0)"
 MOTIF_EXECUTABLE = re.compile(r'^EXECUTABLE = (?P<val>"[^"]*")', re.MULTILINE)
@@ -159,6 +162,11 @@ ZONE_ECRAN = (0, 0, 0, 0)
 COMPTEUR_CENTRE = (0, 0)
 # Taille de la zone lue autour du centre (largeur, hauteur). Laisser tel quel.
 COMPTEUR_TAILLE = (100, 45)
+# Compteur rouge « 1/20 boosters gratuits · +1 dans … » (facultatif) : même
+# pointage que le compteur du haut. Relu quand celui du haut est douteux
+# (pastille « +8 » posée dessus, chiffre coupé…) : l'un répare l'autre.
+# (0, 0) = pas placé : seul le compteur du haut est lu.
+COMPTEUR_ROUGE = (0, 0)
 # Nombre de lectures « compteur plein » d'affilée avant d'ouvrir (évite une
 # fausse lecture).
 LECTURES_STABLES = 2
@@ -721,9 +729,13 @@ def trouver_elements(texte, tous=False):
     return sorted(trouves)
 
 
+# Positions qu'on peut laisser à (0, 0).
+FACULTATIVES = (LIBELLE_BOUTON_5, LIBELLE_COMPTEUR_ROUGE)
+
+
 def a_definir(texte):
     return [libelle for _, _, libelle, actuelle, _ in trouver_elements(texte)
-            if actuelle == NON_DEFINIE and libelle != LIBELLE_BOUTON_5]
+            if actuelle == NON_DEFINIE and libelle not in FACULTATIVES]
 
 
 def navigateur_inconnu(texte):
