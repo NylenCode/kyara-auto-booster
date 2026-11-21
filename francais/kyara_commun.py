@@ -7,6 +7,7 @@ configuration est en haut de kyara_booster.py.
 import ctypes
 import ctypes.wintypes as wt
 import hashlib
+import math
 import os
 import random
 import re
@@ -15,10 +16,15 @@ import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
 
-import mss
-import pyautogui
-import pytesseract
-from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps, ImageStat
+try:
+    import mss
+    import pyautogui
+    import pytesseract
+    from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps, ImageStat
+except ImportError as erreur:
+    # Plusieurs Python installés : relance avec celui qui a les modules.
+    from coordination import relancer_avec_les_modules
+    relancer_avec_les_modules(erreur, ('mss', 'pyautogui', 'pytesseract', 'PIL'))
 
 from coordination import demander_tour, signaler_compteur, terminer_tour
 
@@ -85,6 +91,23 @@ CAPACITES_POSSIBLES = tuple(range(10, 55, 5))
 CONFIG_OCR = "-c tessedit_char_whitelist=0123456789/"
 PSM_OCR = (7, 6)
 DECALAGES_SEUIL = (0, -30, 30)
+
+# --- Compteur rond (site du 17/11/2026) ---
+# En haut de la page, seul le nombre reste (« 12 »), dans un anneau qui se
+# remplit (12/25 : moitié). La capacité vient du compteur rouge « 12/25 »,
+# de CAPACITE_MAX, ou de l'anneau complet. Chiffres gris-blanc : un pixel
+# dont les couleurs s'écartent de plus de ECART_GRIS, et de plus de
+# SATURATION_GRIS fois sa couleur la plus vive, n'en fait pas partie (les
+# bords colorés des chiffres, lissés par le navigateur, en font partie).
+ECART_GRIS = 40
+SATURATION_GRIS = 0.5
+# Hauteur d'un chiffre (pixels) ; rayon de l'anneau, en hauteurs de chiffre.
+HAUTEUR_CHIFFRE = (5, 30)
+RAYON_ANNEAU = (1.1, 2.1)
+# Anneau rempli à partir de N degrés : compteur plein.
+ANNEAU_COMPLET = 350
+CONFIG_OCR_NOMBRE = "-c tessedit_char_whitelist=0123456789"
+PSM_NOMBRE = (7, 8, 13)
 
 # Sans changement, la valeur du compteur est réaffichée toutes les N secondes.
 AFFICHAGE_PERIODIQUE = 60
@@ -323,6 +346,16 @@ class FenetreNavigateur:
 
         _user32.EnumWindows(rappel, 0)
         return max(candidates)[1] if candidates else None
+
+    def titre(self):
+        """Titre de la fenêtre : onglet affiché (« Kyara — Boosters — Opera »), "" si absente."""
+        hwnd = self.handle()
+        if not hwnd:
+            return ""
+        longueur = _user32.GetWindowTextLengthW(hwnd)
+        titre = ctypes.create_unicode_buffer(longueur + 1)
+        _user32.GetWindowTextW(hwnd, titre, longueur + 1)
+        return titre.value
 
     def handle(self):
         """La fenêtre suivie, ou None si elle est fermée ou réduite."""
@@ -821,6 +854,154 @@ def analyser_glyphes(image, capacite=None, lecture=""):
 
 
 # ============================================================
+# COMPTEUR ROND (nombre seul dans un anneau)
+# ============================================================
+def garder_gris(image):
+    """
+    Ne garde que les pixels peu colorés (chiffres gris-blanc du compteur rond),
+    en niveaux de gris : l'anneau rouge, l'éclair orange et le fond coloré
+    s'effacent.
+    """
+    r, g, b = image.convert("RGB").split()
+    fonce = ImageChops.darker(r, ImageChops.darker(g, b))
+    clair = ImageChops.lighter(r, ImageChops.lighter(g, b))
+    ecart = ImageChops.subtract(clair, fonce)
+    peu_ecarte = ecart.point(lambda v: 255 if v <= ECART_GRIS else 0)
+    peu_sature = ImageChops.subtract(ecart, clair.point(lambda v: int(v * SATURATION_GRIS)))
+    peu_sature = peu_sature.point(lambda v: 0 if v else 255)
+    return ImageChops.multiply(fonce, ImageChops.lighter(peu_ecarte, peu_sature))
+
+
+def composantes(masque):
+    """Taches d'un masque (pixels non nuls se touchant) : [(x0, y0, x1, y1, pixels)]."""
+    largeur, hauteur = masque.size
+    pixels = masque.load()
+    vus = set()
+    taches = []
+    for y in range(hauteur):
+        for x in range(largeur):
+            if not pixels[x, y] or (x, y) in vus:
+                continue
+            pile, points = [(x, y)], []
+            vus.add((x, y))
+            while pile:
+                a, b = pile.pop()
+                points.append((a, b))
+                for c in (a - 1, a, a + 1):
+                    for d in (b - 1, b, b + 1):
+                        if (0 <= c < largeur and 0 <= d < hauteur and pixels[c, d]
+                                and (c, d) not in vus):
+                            vus.add((c, d))
+                            pile.append((c, d))
+            xs = [p[0] for p in points]
+            ys = [p[1] for p in points]
+            taches.append((min(xs), min(ys), max(xs) + 1, max(ys) + 1, len(points)))
+    return taches
+
+
+def localiser_nombre(image):
+    """
+    Chiffres clairs les plus proches du centre de l'image (le nombre du
+    compteur rond) : (gris, cadre (x0, y0, x1, y1), cadre de chaque chiffre),
+    ou None.
+    """
+    gris = garder_gris(image)
+    if ImageStat.Stat(gris).stddev[0] < 3:
+        return None
+    seuil = seuil_otsu(gris)
+    masque = gris.point(lambda v: 255 if v > seuil else 0)
+    taches = [t for t in composantes(masque)
+              if HAUTEUR_CHIFFRE[0] <= t[3] - t[1] <= HAUTEUR_CHIFFRE[1] and t[4] >= 6
+              and t[2] - t[0] <= 3 * (t[3] - t[1])]
+    if not taches:
+        return None
+    cx, cy = image.width / 2, image.height / 2
+    groupe = [min(taches, key=lambda t: abs((t[0] + t[2]) / 2 - cx) + abs((t[1] + t[3]) / 2 - cy))]
+    # Chiffres voisins : même hauteur de ligne, collés à moins de 4 pixels.
+    ajoute = True
+    while ajoute:
+        ajoute = False
+        x0, x1 = min(t[0] for t in groupe), max(t[2] for t in groupe)
+        y0, y1 = min(t[1] for t in groupe), max(t[3] for t in groupe)
+        for t in taches:
+            recouvrement = min(y1, t[3]) - max(y0, t[1])
+            if (t not in groupe and recouvrement >= 0.6 * min(y1 - y0, t[3] - t[1])
+                    and (0 <= t[0] - x1 <= 4 or 0 <= x0 - t[2] <= 4)):
+                groupe.append(t)
+                ajoute = True
+                break
+    if len(groupe) > 3:
+        return None
+    groupe.sort()
+    cadre = (min(t[0] for t in groupe), min(t[1] for t in groupe),
+             max(t[2] for t in groupe), max(t[3] for t in groupe))
+    return gris, cadre, [t[:4] for t in groupe]
+
+
+def arc_anneau(image, cadre):
+    """
+    Degrés (0 à 360) de l'anneau rempli autour du nombre, en partant du haut
+    dans le sens des aiguilles d'une montre : pixels colorés (toute couleur)
+    sur le cercle autour des chiffres. 360 = anneau complet.
+    """
+    x0, y0, x1, y1 = cadre
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    hauteur = y1 - y0
+    pixels = image.convert("RGB").load()
+    secteurs = set()
+    for y in range(image.height):
+        for x in range(image.width):
+            r, g, b = pixels[x, y]
+            if max(r, g, b) < 50 or max(r, g, b) - min(r, g, b) < 40:
+                continue
+            dx, dy = x + 0.5 - cx, y + 0.5 - cy
+            if RAYON_ANNEAU[0] * hauteur <= (dx * dx + dy * dy) ** 0.5 <= RAYON_ANNEAU[1] * hauteur:
+                angle = math.degrees(math.atan2(dx, -dy)) % 360
+                secteurs.add(int(angle // 10))
+    # Remplissage continu depuis le haut (les pointillés laissent des trous).
+    fin = -1
+    for secteur in range(36):
+        if secteur in secteurs:
+            fin = secteur
+        elif secteur - fin > 3:
+            break
+    return (fin + 1) * 10
+
+
+def lire_nombre(image):
+    """
+    Nombre du compteur rond (« 12 ») : (nombre, degrés de l'anneau) ou None.
+    OCR des seuls chiffres, agrandis et adoucis ; une lecture dont le nombre
+    de chiffres contredit les taches vues (« 7 » pour deux chiffres séparés)
+    est écartée et une autre passe est faite.
+    """
+    trouve = localiser_nombre(image)
+    if trouve is None:
+        return None
+    gris, (x0, y0, x1, y1), boites = trouve
+    marge = 6
+    morceau = ImageOps.autocontrast(gris.crop((x0 - marge, y0 - marge, x1 + marge, y1 + marge)))
+    morceau = morceau.resize((morceau.width * 5, morceau.height * 5), Image.Resampling.BICUBIC)
+    morceau = morceau.filter(ImageFilter.GaussianBlur(1))
+    seuil = seuil_otsu(morceau)
+    binaire = ImageOps.expand(ImageOps.invert(morceau.point(lambda v: 255 if v > seuil else 0)),
+                              border=20, fill=255)
+    # Taches toutes de la taille d'un chiffre : leur nombre est celui des chiffres.
+    hauteur = y1 - y0
+    separes = all(b[2] - b[0] <= hauteur for b in boites)
+    for psm in PSM_NOMBRE:
+        try:
+            texte = pytesseract.image_to_string(
+                binaire, config=f"--oem 3 --psm {psm} {CONFIG_OCR_NOMBRE}")
+        except Exception:
+            continue
+        texte = re.sub(r"\D", "", texte)
+        if 1 <= len(texte) <= 2 and (not separes or len(texte) == len(boites)):
+            return int(texte), arc_anneau(image, (x0, y0, x1, y1))
+    return None
+
+
+# ============================================================
 # DÉTECTION DU COMPTEUR
 # ============================================================
 class DetecteurCompteur:
@@ -841,6 +1022,8 @@ class DetecteurCompteur:
 
     # Messages « compteur retrouvé / introuvable » du recalage.
     MESSAGES_RECALAGE = True
+    # Compteur rond accepté (nombre seul, sans « /10 ») : celui du haut.
+    NOMBRE_SEUL = True
 
     def __init__(self, navigateur, centre, taille=(100, 45), lectures_stables=2,
                  capacite=0, secours=(0, 0)):
@@ -895,8 +1078,14 @@ class DetecteurCompteur:
             self.secours.reinitialiser()
 
     def compteur_visible(self):
-        """Vrai si le compteur est à sa place : encore sur la page d'accueil."""
-        image = capturer_zone(self.region)
+        """
+        Vrai si le compteur « x/10 » est à sa place : encore sur la page
+        d'accueil. Le compteur rond du haut reste sur toutes les pages : c'est
+        alors le compteur rouge, propre à l'accueil, qui le dit.
+        """
+        if self.secours is not None:
+            return self.secours.compteur_visible()
+        image = self._capturer(self.region)
         for durcissement in DURCISSEMENTS_SEUIL:
             glyphes = segmenter_glyphes(image, durcissement)
             if glyphes is not None and est_barre_oblique(glyphes[-3]):
@@ -922,6 +1111,13 @@ class DetecteurCompteur:
             if resultat is not None and any(map(est_barre_oblique, resultat[0])):
                 x0, x1, _, _ = resultat[1]
                 return x0 < MARGE_BORD or x1 > image.width - MARGE_BORD
+        if self.NOMBRE_SEUL:
+            # Compteur rond : le nombre et son anneau doivent tenir dans la zone.
+            trouve = localiser_nombre(image)
+            if trouve is not None:
+                x0, y0, x1, y1 = trouve[1]
+                marge = max(MARGE_BORD, int(RAYON_ANNEAU[1] * (y1 - y0)) - (x1 - x0) // 2)
+                return x0 < marge or x1 > image.width - marge
         return True
 
     def recaler(self):
@@ -942,6 +1138,12 @@ class DetecteurCompteur:
         image.save(self.image_debug_recherche)
 
         centre = localiser_compteur(image, self.taille)
+        if centre is None and self.NOMBRE_SEUL:
+            # Compteur rond : le nombre le plus proche de la position prévue.
+            trouve = localiser_nombre(image)
+            if trouve is not None:
+                x0, y0, x1, y1 = trouve[1]
+                centre = ((x0 + x1) / 2, (y0 + y1) / 2)
         if centre is None:
             # Message limité à un toutes les quelques minutes.
             if (self.MESSAGES_RECALAGE and time.monotonic() - self._dernier_message_introuvable
@@ -1085,7 +1287,9 @@ class DetecteurCompteur:
             signaler_compteur(self.navigateur, False, f"erreur capture : {erreur}")
             return False
 
-        signature = hashlib.md5(image.tobytes()).digest()
+        # La capacité compte : apprise plus tard (compteur rouge), elle change
+        # la lecture du compteur rond (« 12/? » devient « 12/25 »).
+        signature = hashlib.md5(image.tobytes() + str(self.capacite_lue).encode()).digest()
 
         if signature == self._signature:
             plein_brut, valeur, detail = self._dernier_resultat
@@ -1150,7 +1354,8 @@ class DetecteurCompteur:
         if autre is None:
             return plein, valeur, detail
         plein_rouge, valeur_rouge, detail_rouge = autre
-        if self.capacite_lue is None and self.secours.capacite_lue:
+        # Seul le compteur rouge affiche la capacité (« 12/25 ») : elle prime.
+        if self.secours.capacite_lue and self.secours.capacite_lue != self.capacite_lue:
             self.capacite_lue = self.secours.capacite_lue
         m = re.fullmatch(r"(\d{1,2})/(\d{2})", valeur)
         douteux = not m or int(m[1]) > int(m[2]) or "OCR" in detail
@@ -1191,6 +1396,10 @@ class DetecteurCompteur:
         # Capacité relue à chaque changement d'image (un compte avec ou sans
         # abonnement pouvant être connecté), même quand elle est réglée.
         lu = self._lecture_rapide(image)
+        if self.NOMBRE_SEUL and "/" not in lu:
+            resultat = self._analyser_anneau(image)
+            if resultat is not None:
+                return resultat
         self._apprendre_capacite(lu)
         total = self.capacite_lue or "?"
 
@@ -1220,6 +1429,38 @@ class DetecteurCompteur:
         valeur = f"{numerateur}/{self.capacite_lue or '?'}" if valides else "?"
         return False, valeur, f"{detail}, OCR : {lectures}"
 
+    def _analyser_anneau(self, image):
+        """
+        Compteur rond (« 12 » dans un anneau) : plein quand le nombre atteint
+        la capacité. None si aucun nombre n'est lu.
+        """
+        lecture = lire_nombre(image)
+        if lecture is None:
+            return None
+        nombre, degres = lecture
+        capacite = self.capacite_lue
+        if not capacite and degres >= ANNEAU_COMPLET and nombre in CAPACITES_POSSIBLES:
+            print(f"{self.prefixe} Anneau du compteur complet à {nombre} : "
+                  f"capacité {nombre} boosters.")
+            self.capacite_lue = capacite = nombre
+        if capacite and nombre > capacite and nombre >= 10:
+            # Zéro barré lu « 6 », « 8 » ou « 9 » (16 pour 10).
+            corrige = int(nombre_lu(str(nombre)))
+            nombre = corrige if corrige <= capacite else nombre
+        detail = f"compteur rond, anneau {degres}°"
+        if not capacite:
+            return False, f"{nombre}/?", f"{detail}, capacité pas encore connue"
+        # L'anneau compte aussi (un segment par booster) : chiffre mal lu
+        # (« 6 » lu « 8 ») -> nombre donné par l'anneau.
+        selon_anneau = round(degres * capacite / 360)
+        if abs(selon_anneau - nombre) > 1:
+            detail += f", lu {nombre}"
+            nombre = selon_anneau
+        # Plein seulement avec l'anneau complet : jamais d'ouverture sur un
+        # chiffre seul (le « 10 » de « 10k » par exemple).
+        return (nombre == capacite and degres >= ANNEAU_COMPLET,
+                f"{nombre}/{capacite}", detail)
+
 
 
 def garder_rouge(image):
@@ -1227,12 +1468,12 @@ def garder_rouge(image):
     Ne garde que les pixels rouges (chiffres du compteur rouge), clairs sur
     fond noir : le texte gris, le minuteur blanc et le fond disparaissent.
     """
-    gris = Image.new("L", image.size)
-    gris.putdata([
-        r - max(g, b) if r >= 80 and r > 1.8 * max(g, b) else 0
-        for r, g, b in image.convert("RGB").getdata()
-    ])
-    return gris.convert("RGB")
+    r, g, b = image.convert("RGB").split()
+    autre = ImageChops.lighter(g, b)
+    assez = r.point(lambda v: 255 if v >= 80 else 0)
+    dominant = ImageChops.subtract(r, autre.point(lambda v: min(255, int(1.8 * v))))
+    garde = ImageChops.multiply(assez, dominant.point(lambda v: 255 if v else 0))
+    return ImageChops.multiply(ImageChops.subtract(r, autre), garde).convert("RGB")
 
 
 class CompteurSecours(DetecteurCompteur):
@@ -1243,6 +1484,7 @@ class CompteurSecours(DetecteurCompteur):
     il peut ne pas être visible sur la page affichée.
     """
     MESSAGES_RECALAGE = False
+    NOMBRE_SEUL = False
 
     def __init__(self, navigateur, centre, taille):
         super().__init__(f"{navigateur}_rouge", centre, taille)
@@ -1276,7 +1518,11 @@ class CompteurSecours(DetecteurCompteur):
 # ============================================================
 # POPUP DE PRÉSENCE
 # ============================================================
-MOTS_TITRE_POPUP = ("toujours", "encore")
+# Titre du popup -> bouton cliqué : « Tu es toujours là ? » et « Animations
+# en veille » (affiché quand l'onglet est resté derrière une autre fenêtre).
+MOTS_TITRE_POPUP = ("toujours", "encore", "veille")
+BOUTON_POPUP = {"veille": "bouton « Reprendre »"}
+BOUTON_POPUP_DEFAUT = "bouton « Je suis là »"
 
 
 def distance(a, b):
@@ -1346,7 +1592,10 @@ class SurveillancePopup:
         self._derniere = time.monotonic() - self.intervalle + secondes
 
     def _localiser(self, image):
-        """Renvoie (x, y) du bouton dans l'image, None si pas de popup."""
+        """
+        Renvoie (x, y, nom du bouton) dans l'image, None si pas de popup,
+        « introuvable » si le titre est vu sans bouton.
+        """
         gris = ImageOps.autocontrast(ImageOps.grayscale(image))
         donnees = pytesseract.image_to_data(
             gris, config="--oem 3 --psm 11", output_type=pytesseract.Output.DICT
@@ -1372,23 +1621,24 @@ class SurveillancePopup:
             )
 
         titres = [
-            mot for mot in mots
-            if any(distance(mot[0], titre) <= 1 for titre in MOTS_TITRE_POPUP)
+            mot + (titre,) for mot in mots for titre in MOTS_TITRE_POPUP
+            if distance(mot[0], titre) <= 1
         ]
         if not titres:
             return None
 
         # Le texte ne suffit pas (il peut s'afficher ailleurs, dans une autre
         # fenêtre) : il faut aussi le bouton rouge plein juste en dessous.
-        for _, tx, ty, tl, th in titres:
+        for _, tx, ty, tl, th, titre in titres:
             position = self._bouton_rouge(image, tx, ty, tl, th)
             if position:
-                return position
+                return position + (BOUTON_POPUP.get(titre, BOUTON_POPUP_DEFAUT),)
 
         # « toujours » seul est un mot courant : le signaler seulement s'il
         # ressemble vraiment au titre (« tu es » / « tes » juste avant).
         for titre in titres:
-            if any(m[0] in ("es", "tu", "tes", "tues") and voisin(m, titre) for m in mots):
+            if titre[5] != "veille" and any(
+                    m[0] in ("es", "tu", "tes", "tues") and voisin(m, titre[:5]) for m in mots):
                 return "introuvable"
         return None
 
@@ -1457,7 +1707,8 @@ class SurveillancePopup:
             )
             return False
 
-        cible = (self.zone[0] + position[0], self.zone[1] + position[1])
+        x, y, bouton = position
+        cible = (self.zone[0] + x, self.zone[1] + y)
 
         # Le clic utilise la souris : il faut le verrou, mais sans attendre
         # la priorité (c'est très court).
@@ -1466,9 +1717,9 @@ class SurveillancePopup:
             return False
 
         try:
-            print(f"{self.prefixe} Popup de présence détecté.")
+            print(f"{self.prefixe} Popup détecté : clic sur le {bouton}.")
             with navigateur_au_premier_plan():
-                cliquer(self.navigateur, cible, "bouton « Je suis là »", attente=1.5)
+                cliquer(self.navigateur, cible, bouton, attente=1.5)
         finally:
             terminer_tour(self.navigateur, passer_la_main=False)
         # Revérifie vite que le popup a bien disparu.
@@ -1599,6 +1850,166 @@ def suivre_mise_a_jour(navigateur, zone):
 
 
 # ============================================================
+# PAGE DES BOOSTERS
+# ============================================================
+# Onglet « Boosters » du menu du site : souligné d'un trait rouge sur la page
+# des boosters. Trait cherché dans cette bande sous le mot (dx, dy, largeur,
+# hauteur), sur au moins N pixels d'une même ligne.
+BANDE_SOULIGNEMENT = (-45, 12, 90, 40)
+PIXELS_SOULIGNEMENT = 25
+# Page quittée depuis N secondes (le temps de lire une autre page à la main) :
+# retour par l'onglet. Juste après un popup : retour plus rapide.
+PAGE_QUITTEE_DELAI = 30
+PAGE_QUITTEE_APRES_POPUP = 4
+ATTENTE_APRES_RETOUR = 3
+# Après N retours d'affilée sans retrouver la page : nouvel essai toutes les
+# PAUSE_APRES_ECHECS secondes seulement (position de l'onglet à revoir ?).
+RETOURS_MAX = 3
+PAUSE_APRES_ECHECS = 600
+
+
+def est_rouge_vif(pixel):
+    """Rouge du trait sous l'onglet actif, même assombri par un voile."""
+    r, g, b = pixel[:3]
+    return r >= 60 and r > 1.8 * max(g, b)
+
+
+class SurveillancePage:
+    """
+    Vérifie que l'onglet Kyara affiche la page des boosters : titre de la
+    fenêtre (« Kyara — Boosters ») et trait rouge sous l'onglet « Boosters ».
+    Page quittée (mise en veille des animations, clic ailleurs…) : clic sur
+    l'onglet « Boosters » pour y revenir. Rien n'est fait si un autre onglet
+    ou une autre fenêtre est affiché.
+    """
+
+    def __init__(self, navigateur, onglet, detecteur):
+        self.navigateur = navigateur
+        self.prefixe = f"[{navigateur.upper()}]"
+        self.onglet = tuple(onglet)
+        self.detecteur = detecteur
+        self._quittee_depuis = None
+        self._rapide_jusqua = 0.0
+        self._retours = 0
+        self._dernier_retour = float("-inf")
+        self._sans_onglet_signale = False
+
+    @property
+    def placee(self):
+        return self.onglet != (0, 0)
+
+    def _souligne(self):
+        dx, dy, largeur, hauteur = BANDE_SOULIGNEMENT
+        image = capturer_zone((self.onglet[0] + dx, self.onglet[1] + dy, largeur, hauteur))
+        pixels = image.convert("RGB").load()
+        return any(
+            sum(est_rouge_vif(pixels[x, y]) for x in range(largeur)) >= PIXELS_SOULIGNEMENT
+            for y in range(hauteur)
+        )
+
+    def etat(self):
+        """« boosters », « ailleurs » (autre page de Kyara) ou None (Kyara pas affiché)."""
+        titre = normaliser_texte(_fenetre.titre()) if _fenetre is not None else ""
+        if titre:
+            if "kyara" not in titre:
+                return None
+        elif not self.detecteur.lisible:
+            return None
+        if titre and "booster" not in titre:
+            return "ailleurs"
+        if self.placee and not self._souligne():
+            return "ailleurs"
+        return "boosters"
+
+    def apres_popup(self):
+        """Popup cliqué : la page a pu changer, retour rapide si besoin."""
+        self._rapide_jusqua = time.monotonic() + 30
+
+    def verifier(self):
+        """Pendant l'attente : page des boosters quittée -> retour. True si clic."""
+        if self.detecteur.ecran_eteint:
+            return False
+        try:
+            etat = self.etat()
+        except Exception as erreur:
+            print(f"{self.prefixe} [ERREUR PAGE] {erreur}")
+            return False
+        maintenant = time.monotonic()
+        if etat != "ailleurs":
+            self._quittee_depuis = None
+            if etat == "boosters":
+                self._retours = 0
+            return False
+        if self._quittee_depuis is None:
+            self._quittee_depuis = maintenant
+        delai = (PAGE_QUITTEE_APRES_POPUP if maintenant < self._rapide_jusqua
+                 else PAGE_QUITTEE_DELAI)
+        if maintenant - self._quittee_depuis < delai:
+            return False
+        if not self.placee:
+            if not self._sans_onglet_signale:
+                print(f"{self.prefixe} Kyara n'est plus sur la page des boosters. Pour y "
+                      "revenir tout seul, place l'onglet « Boosters » (menu 3 de "
+                      "configurer_positions.py).")
+                self._sans_onglet_signale = True
+            return False
+        attente = PAUSE_APRES_ECHECS if self._retours >= RETOURS_MAX else PAGE_QUITTEE_DELAI
+        if maintenant - self._dernier_retour < attente:
+            return False
+        if not demander_tour(self.navigateur, prioritaire=True, raison="page"):
+            return False
+        try:
+            print(f"{self.prefixe} Kyara n'est plus sur la page des boosters : retour.")
+            with navigateur_au_premier_plan():
+                self._revenir()
+        finally:
+            terminer_tour(self.navigateur, passer_la_main=False)
+        return True
+
+    def _onglet_visible(self):
+        """Vrai si le mot « Boosters » est bien sous la position de l'onglet."""
+        x, y = self.onglet
+        gris = ImageOps.autocontrast(ImageOps.grayscale(capturer_zone((x - 50, y - 18, 100, 36))))
+        gris = gris.resize((gris.width * 3, gris.height * 3), Image.Resampling.BICUBIC)
+        return "booster" in normaliser_texte(
+            pytesseract.image_to_string(gris, config="--oem 3 --psm 6"))
+
+    def _revenir(self):
+        self._dernier_retour = time.monotonic()
+        self._quittee_depuis = None
+        self._retours += 1
+        # Jamais de clic à l'aveugle : le mot « Boosters » doit être là.
+        if not self._onglet_visible():
+            print(f"{self.prefixe} Mot « Boosters » pas vu en {self.onglet} : pas de clic. "
+                  "Position de l'onglet à revoir (menu 3 de configurer_positions.py) ?")
+            return
+        cliquer(self.navigateur, self.onglet, "onglet « Boosters »", attente=ATTENTE_APRES_RETOUR)
+        self.detecteur.reinitialiser()
+        if self._retours == RETOURS_MAX and self.etat() == "ailleurs":
+            print(f"{self.prefixe} Toujours pas sur la page des boosters après {RETOURS_MAX} "
+                  "clics : position de l'onglet « Boosters » à revoir (menu 3 de "
+                  f"configurer_positions.py) ? Nouvel essai toutes les {PAUSE_APRES_ECHECS // 60} min.")
+
+    def avant_ouverture(self):
+        """
+        Juste avant une ouverture (tour obtenu, navigateur devant) : l'accueil
+        des boosters doit être affiché (trait sous l'onglet, compteur rouge
+        visible s'il est placé), sinon clic sur l'onglet.
+        """
+        if not self.placee:
+            return
+        try:
+            accueil = self.etat() != "ailleurs" and (
+                self.detecteur.secours is None or self.detecteur.compteur_visible())
+        except Exception as erreur:
+            print(f"{self.prefixe} [ERREUR PAGE] {erreur}")
+            return
+        if not accueil:
+            print(f"{self.prefixe} Accueil des boosters pas affiché : clic sur l'onglet « Boosters ».")
+            self._revenir()
+
+
+# ============================================================
 # CLICS
 # ============================================================
 def cliquer(navigateur, position, description="", attente=0.5, double=False):
@@ -1677,13 +2088,15 @@ def lots_a_ouvrir(capacite, bouton_5):
 
 
 def boucle_principale(navigateur, detecteur, popup, sequence, intervalle=2,
-                      pause_apres_ouverture=5, a_chaque_tour=None, bouton_5=False):
+                      pause_apres_ouverture=5, a_chaque_tour=None, bouton_5=False,
+                      onglet_boosters=(0, 0)):
     """
     Détection en continu ; ouverture seulement quand le verrou est obtenu.
     Attendre son tour ne bloque jamais la lecture du compteur.
     `a_chaque_tour` : fonction appelée à chaque passage (ex. suivi du compte).
     `bouton_5` : vrai si le bouton « ×5 » est placé. `sequence` reçoit le
-    nombre de boosters à ouvrir.
+    nombre de boosters à ouvrir. `onglet_boosters` : onglet « Boosters » du
+    menu du site, cliqué pour revenir sur la page des boosters.
     """
     from coordination import liberer_au_demarrage
 
@@ -1692,6 +2105,7 @@ def boucle_principale(navigateur, detecteur, popup, sequence, intervalle=2,
     detecteur.zone_ecran = popup.zone
     suivre_fenetre(navigateur, popup.zone)
     mise_a_jour = suivre_mise_a_jour(navigateur, popup.zone)
+    page = SurveillancePage(navigateur, onglet_boosters, detecteur)
 
     try:
         print(f"{prefixe} Tesseract : {pytesseract.get_tesseract_version()}")
@@ -1710,9 +2124,11 @@ def boucle_principale(navigateur, detecteur, popup, sequence, intervalle=2,
                     detecteur.reinitialiser()
                     continue
                 if not detecteur.ecran_eteint:
-                    popup.verifier(urgent=not detecteur.lisible)
+                    if popup.verifier(urgent=not detecteur.lisible):
+                        page.apres_popup()
                     if a_chaque_tour:
                         a_chaque_tour()
+                    page.verifier()
 
                 if detecteur.lire() and demander_tour(navigateur):
                     print(f"{prefixe} Compteur plein confirmé et souris libre : ouverture.")
@@ -1731,6 +2147,7 @@ def boucle_principale(navigateur, detecteur, popup, sequence, intervalle=2,
                                     popup.verifier(urgent=True)
                                     print(f"{prefixe} Compteur à {capacite} : "
                                           f"ouverture {numero}/{len(lots)} ({lot} boosters).")
+                                page.avant_ouverture()
                                 sequence(lot)
                     finally:
                         terminer_tour(navigateur)

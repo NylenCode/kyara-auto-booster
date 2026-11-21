@@ -207,6 +207,62 @@ def release_at_startup(name):
         state["ready"][name] = 0.0
 
 
+# ============================================================
+# PYTHON THAT HAS THE MODULES
+# ============================================================
+def relaunch_with_the_modules(error, modules):
+    """
+    Module missing for this Python (several Pythons installed, each one with
+    its own modules; a double-click takes the most recent one): relaunches
+    the script with another installed Python that has `modules`. Otherwise:
+    says what to do. The window waits for Enter before closing, so that it
+    can be read.
+    """
+    import re
+    import subprocess
+
+    print(f"Module « {error.name} » missing for this Python ({sys.version.split()[0]}, "
+          f"{sys.executable}).")
+    code = 1
+    other = None
+    if not os.environ.get("KYARA_RELAUNCH"):
+        try:
+            listing = subprocess.run(["py", "-0p"], capture_output=True, text=True,
+                                     timeout=15).stdout
+        except (OSError, subprocess.SubprocessError):
+            listing = ""
+        for line in listing.splitlines():
+            path = re.search(r"[A-Za-z]:\\.*\.exe", line)
+            if not path or os.path.normcase(path[0]) == os.path.normcase(sys.executable):
+                continue
+            try:
+                if subprocess.run([path[0], "-c", "import " + ", ".join(modules)],
+                                  capture_output=True, timeout=60).returncode == 0:
+                    other = path[0]
+                    break
+            except (OSError, subprocess.SubprocessError):
+                pass
+    if other:
+        print(f"Relaunching with {other}, which has the modules.\n", flush=True)
+        process = subprocess.Popen([other, os.path.abspath(sys.argv[0]), *sys.argv[1:]],
+                                   env={**os.environ, "KYARA_RELAUNCH": "1"})
+        while True:
+            try:
+                code = process.wait()
+                break
+            except KeyboardInterrupt:
+                # Ctrl + C: the relaunched script stops cleanly by itself.
+                continue
+        print("\nScript stopped.")
+    else:
+        print("No other installed Python has the modules. Install them for this one with:\n"
+              "    py -m pip install mss pyautogui pytesseract pillow")
+    try:
+        input("Press Enter to close.")
+    except (EOFError, KeyboardInterrupt):
+        pass
+    raise SystemExit(code)
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "reset":
         STATE_FILE.write_text(json.dumps(_empty_state(), indent=2), encoding="utf-8")

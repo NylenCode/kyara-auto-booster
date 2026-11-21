@@ -52,8 +52,13 @@ import time
 import unicodedata
 from pathlib import Path
 
-import mss
-import pyautogui
+try:
+    import mss
+    import pyautogui
+except ImportError as error:
+    # Several Pythons installed: relaunch with the one that has the modules.
+    from coordination import relaunch_with_the_modules
+    relaunch_with_the_modules(error, ('mss', 'pyautogui'))
 
 DIRECTORY = Path(__file__).resolve().parent
 DEFAULT_FILE = DIRECTORY / "kyara_booster.py"
@@ -113,14 +118,16 @@ _kernel32.GetModuleHandleW.argtypes = (ctypes.c_wchar_p,)
 POSITION = r"(?P<pos>\(-?\d+, -?\d+\))"
 BUTTON_5_LABEL = ("the \"×5\" button of a pack page, left of \"×10\" (optional: "
                   "opens the 5 boosters left of a counter at 15 or 25)")
-RED_COUNTER_LABEL = ("the red counter \"x/20 boosters gratuits\" (optional: read when "
-                     "the top counter is doubtful): point at the number just before the \"/\"")
+RED_COUNTER_LABEL = ("the red counter \"12/25 boosters gratuits\", below the big image "
+                     "of the boosters home page (recommended: the only one showing the capacity): "
+                     "point at the number just before the \"/\"")
+TAB_LABEL = ("the « Boosters » tab of the menu at the top of the site (recommended: clicked to "
+             "go back to the boosters page if Kyara left it)")
 SCROLL = r'(?P<scr>, "scroll": (?P<notches>\d+))?'
 ELEMENTS = (
     (rf"^COUNTER_CENTER = {POSITION}",
-     lambda m: "the \"x/10\" counter at the top of the Kyara page: tip of the mouse "
-               "on the number right before the \"/\" (the 5 of \"5/10\"; "
-               "\"10/10\": between the 1 and the 0; \"20/20\": between the 2 and the 0)", False),
+     lambda m: "the counter at the top of the Kyara page: tip of the mouse on the "
+               "number in the ring (\"12\")", False),
     (rf'^\s*"(?P<name>[^"]+)": \{{"position": {POSITION}, "double_click": (?:True|False){SCROLL}',
      lambda m: f"the pack \"{m['name']}\" on the home page", True),
     (rf"^AVATAR = {POSITION}",
@@ -131,6 +138,7 @@ ELEMENTS = (
      lambda m: "the « Tout révéler » (Reveal all) button (screen of the cards to turn)", False),
     (rf"^BUTTON_5_BOOSTERS = {POSITION}", lambda m: BUTTON_5_LABEL, False),
     (rf"^RED_COUNTER = {POSITION}", lambda m: RED_COUNTER_LABEL, False),
+    (rf"^BOOSTERS_TAB = {POSITION}", lambda m: TAB_LABEL, False),
 )
 NOT_SET = "(0, 0)"
 EXECUTABLE_PATTERN = re.compile(r'^EXECUTABLE = (?P<val>"[^"]*")', re.MULTILINE)
@@ -153,27 +161,30 @@ EXECUTABLE = ""
 # (0, 0, 0, 0) = not detected yet.
 SCREEN_AREA = (0, 0, 0, 0)
 
-# ---------- 2. Booster counter (x/10) ----------
-# "x/10" counter at the top of the Kyara page: tip of the mouse on the
-# number right before the "/" (the 5 of "5/10"; "10/10": between the 1
-# and the 0 of the first 10). If it moves a little,
-# the script finds it again by itself (automatic re-centering).
+# ---------- 2. Booster counters ----------
+# Counter at the top of the Kyara page: the number in the ring ("12");
+# tip of the mouse on this number. (Old display "5/10": on the number
+# right before the "/".) If it moves a little, the script finds it again
+# by itself (automatic re-centering).
 # (0, 0) = position not placed yet (applies to all positions).
 COUNTER_CENTER = (0, 0)
 # Size of the area read around the center (width, height). Leave as is.
 COUNTER_SIZE = (100, 45)
-# Red counter "1/20 boosters gratuits · +1 dans …" (optional): same
-# pointing as the top counter. Read when the top one is doubtful ("+8"
-# badge placed over it, cut digit…): each one repairs the other.
-# (0, 0) = not placed: only the top counter is read.
+# Red counter "12/25 boosters gratuits · +1 dans …", below the big image
+# of the boosters home page (recommended): point at the number right
+# before the "/". The only one showing the capacity ("/25") since the top
+# counter shows only the number; both counters are read together and each
+# one repairs the other. (0, 0) = not placed: the capacity comes from
+# MAX_CAPACITY, or from the ring once full.
 RED_COUNTER = (0, 0)
 # Number of "full counter" readings in a row before opening (avoids a
 # wrong reading).
 STABLE_READINGS = 2
 # Max capacity of the booster counter: 10 without a subscription, 20 with a
 # subscription that adds 10 capacity ("x/20"). 0 = read by itself on
-# the counter (recommended: also works with several accounts, subscribed or
-# not). In every case, the script opens when the counter is full.
+# the red counter, or on the ring once full (recommended: also works
+# with several accounts, subscribed or not). In every case, the
+# script opens when the counter is full.
 MAX_CAPACITY = 0
 # Pause between two readings of the counter, in seconds.
 INTERVAL = 2
@@ -265,11 +276,16 @@ SEQUENCE = [
 # (0, 0) = not placed: these 5 boosters stay on the counter.
 BUTTON_5_BOOSTERS = (0, 0)
 
-# ---------- 5. « Tu es toujours là ? » ("Are you still there?") popup ----------
-# The popup is looked for on the whole SCREEN_AREA; the click is on its button.
-# Full check every N seconds (a quick test also runs at each pass and
-# triggers it as soon as the red button appears).
+# ---------- 5. Popups and boosters page ----------
+# Popups « Tu es toujours là ? » ("Are you still there?") and « Animations
+# en veille » (animations asleep): looked for on the whole SCREEN_AREA; the
+# click is on their button. Full check every N seconds (a quick test also
+# runs at each pass and triggers it as soon as the red button appears).
 POPUP_INTERVAL = 10
+# « Boosters » tab of the menu at the top of the site (recommended): if Kyara
+# leaves the boosters page (animations put to sleep…), the script clicks
+# on it to go back. (0, 0) = not placed: it is only reported.
+BOOSTERS_TAB = (0, 0)
 
 # ---------- 6. Mouse ----------
 # Putting the mouse in the top-left corner of the main screen stops the script.
@@ -731,7 +747,7 @@ def find_elements(text, all_=False):
 
 
 # Positions that can stay at (0, 0).
-OPTIONAL = (BUTTON_5_LABEL, RED_COUNTER_LABEL)
+OPTIONAL = (BUTTON_5_LABEL, RED_COUNTER_LABEL, TAB_LABEL)
 
 
 def to_set(text):

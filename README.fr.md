@@ -10,17 +10,17 @@ Ouvre tes boosters **Kyara** tout seul, dès que le compteur est plein.
 
 ## Ce qu'il fait
 
-- Surveille le compteur de boosters en haut de la page (`3/10`, `7/10`…).
+- Surveille les **deux compteurs** de boosters : le nombre dans le rond en haut de la page (`12`) et le compteur rouge sous la grande image (`12/25 boosters gratuits`), qui donne la capacité. L'un répare l'autre si une lecture est douteuse.
 - Quand il est plein (`10/10`, `20/20` avec un abonnement, `15/15` ou `25/25` avec un bonus d'événement), il clique pour ouvrir les boosters, puis attend à nouveau.
 - À `20/20`, il ouvre **deux fois de suite**, car le bouton du jeu n'en ouvre que 10 à la fois. À `15/15` et `25/25`, il ouvre ensuite les 5 restants avec le bouton `×5`.
-- **Lit tout seul la capacité du compteur** (10, 15, 20, 25…) et s'adapte si elle change.
+- **Lit tout seul la capacité du compteur** (10, 15, 20, 25…) et s'adapte si elle change. (L'ancien affichage `5/10` en haut marche toujours.)
 - **Rotation** : ouvre tes packs choisis à tour de rôle (ex. Isekai, Shonen Mix, Isekai…).
 - **Chasse à la carte** : ouvre un pack jusqu'à obtenir une carte, puis passe à d'autres packs.
 - **Plusieurs comptes** : reconnaît le compte connecté à sa photo de profil ; chaque compte peut avoir ses packs et la capacité de son compteur.
 - **Plusieurs navigateurs en même temps** (ex. Opera + Brave) : les scripts se passent la souris chacun leur tour.
-- Gère le popup « Tu es toujours là ? ».
+- Gère les popups « Tu es toujours là ? » et « Animations en veille » (bouton « Reprendre »).
+- **Revient sur la page des boosters** si Kyara l'a quittée : clic sur l'onglet « Boosters » du menu, seulement si le mot « Boosters » est bien vu à cet endroit.
 - **Pause pendant les mises à jour de Kyara** (bulle « Kyara redémarre pour une mise à jour ») : aucun clic jusqu'au retour du jeu, même au milieu d'une ouverture.
-- **Compteur rouge de secours** facultatif (« 1/20 boosters gratuits ») : relu quand le compteur du haut est douteux, une mauvaise lecture ne bloque plus les ouvertures.
 - Le navigateur peut rester derrière d'autres fenêtres ; la souris glisse comme une vraie main.
 - **Aucun fichier à modifier à la main** : un assistant (`configurer_positions.py`) pose des questions simples. Tu mets la souris sur chaque bouton et tu appuies sur **G**.
 
@@ -68,6 +68,8 @@ winget install -e --id UB-Mannheim.TesseractOCR
    Un 2e navigateur réglé dans l'assistant (ex. nommé `brave`) : `run.bat brave` dans un terminal.
 
 Pour arrêter : `Ctrl + C`, ou mets la souris tout en haut à gauche de l'écran.
+
+> Plusieurs Python installés : si celui lancé n'a pas les outils, le programme se relance tout seul avec un autre Python qui les a. Sinon il le dit et attend Entrée ; installe-les alors pour celui-ci : `py -m pip install -r requirements.txt`.
 
 Le mode d'emploi complet (installation, menus de l'assistant, comptes, deux navigateurs, problèmes) est dans **[francais/LISEZ-MOI.txt](francais/LISEZ-MOI.txt)**.
 

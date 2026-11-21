@@ -4,7 +4,9 @@
 
 WHAT IS IT?
   A small program that opens your Kyara boosters by itself.
-  It watches the counter at the top of the page ("3/10", "7/10"…).
+  It watches the booster counters: the number in the ring at the
+  top of the page ("12") and the red counter « 12/25 boosters
+  gratuits » below the big image of the boosters home page.
   As soon as it is full (10/10, or 20/20 with a subscription), it
   clicks for you to open the boosters, then it waits again.
 
@@ -128,16 +130,19 @@ CONTENTS
   it will only ask again for what is missing.
 
   Good to know during step 6:
-    - THE COUNTER ("1/10", "5/10", "10/10"…), at the top of the page:
-      it is the most important. Put the TIP of the mouse right on the
-      number that changes, just before the "/".
-          1/10    -> tip on the 1
-          5/10    -> tip on the 5
-          10/10   -> tip BETWEEN the 1 and the 0 of the first 10
-          20/20   -> tip BETWEEN the 2 and the 0 of the first 20
-                     (with a subscription, the counter goes up to 20)
-      Not on the "/10", not next to the text: otherwise the program
+    - THE COUNTER at the top of the page: it is the most important.
+      It shows a number in a ring that fills up ("12"). Put the TIP
+      of the mouse right on this number (for "12": between the 1 and
+      the 2). Not on the ring, not next to it: otherwise the program
       does not read the counter and never opens anything.
+      (Old display "5/10": tip on the number right before the "/";
+      "10/10": between the 1 and the 0 of the first 10.)
+    - THE RED COUNTER « 12/25 boosters gratuits » (recommended), below
+      the big image of the boosters home page: tip on the number right
+      before the "/" (for "12/25": between the 1 and the 2). It is the
+      only one showing the capacity ("/25").
+    - THE « Boosters » TAB of the menu at the top of the site
+      (recommended): put the mouse on the word « Boosters ».
     - The buttons of the opening screen (« Ouvrir 10 boosters »,
       « Tout révéler »…) are only visible during an opening.
       If you have none going on, skip them with N.
@@ -166,14 +171,24 @@ CONTENTS
       To click, it brings it in front for a second, then puts
       everything back as before.
     - The browser must NOT be minimized in the taskbar.
-    - The « Tu es toujours là ? » ("Are you still there?") popup is
-      handled by itself.
+    - The « Tu es toujours là ? » ("Are you still there?") and
+      « Animations en veille » (animations asleep, « Reprendre »
+      button) popups are handled by themselves.
+    - If Kyara is no longer on the boosters page (after « Animations
+      en veille », a click elsewhere…), the program clicks on the
+      « Boosters » tab to go back: after 30 seconds (time to look at
+      another page by hand), 4 seconds right after a popup. It only
+      clicks if it really sees the word « Boosters » there, and nothing
+      is done if another browser tab is shown (YouTube…). Without the
+      tab placed (menu 3), it is only reported.
     - « Kyara redémarre pour une mise à jour » bubble ("Kyara restarts
       for an update"): the program pauses (no click, even in the middle
       of an opening) and resumes by itself once it is gone.
-    - Red counter « 1/20 boosters gratuits » (optional, menu 3): if it
-      is placed, it is read when the top counter is doubtful ("+8"
-      badge over it, cut digit…). Each one repairs the other.
+    - Both counters are read together: the number comes from the ring
+      at the top, the capacity ("/25") from the red counter. When one
+      is doubtful (badge over it, cut digit…), the other repairs it.
+      Without the red counter placed, the capacity comes from
+      MAX_CAPACITY, or from the ring once full.
     - If a setting is missing, the program says which one at start and
       refuses to click at random. Then run the assistant
       (python configure_positions.py): it will ask for what is missing.
@@ -377,8 +392,12 @@ CONTENTS
       after the installation. Close and open the terminal again.
       Otherwise, try  py  instead of  python.
 
-  "No module named …"
-      Step 2 of the installation was not done.
+  "No module named …" or "Module … missing for this Python"
+      Step 2 of the installation was not done. (If several Pythons
+      are installed, the program relaunches itself with the one that
+      has the tools; this message means that none has them.)
+      Install them:
+          py -m pip install mss pyautogui pytesseract pillow
 
   "Tesseract not found"
       Step 3 of the installation was not done, or Tesseract was
@@ -398,10 +417,12 @@ CONTENTS
   "Counter not found" or "The window left its screen"
       The browser was moved. Put it back where it was, or place the
       positions again (menu 3).
-      For the counter, put the tip of the mouse right on the number
-      just before the "/" (the 5 of "5/10"; for "10/10", between the
-      1 and the 0 of the first 10; for "20/20", between the 2 and
-      the 0).
+      For the top counter, put the tip of the mouse right on the
+      number in the ring (for "12": between the 1 and the 2).
+
+  "Word « Boosters » not seen … : no click"
+      The « Boosters » tab moved (or the window): place its position
+      again (menu 3).
 
   "Pack page never opened: opening cancelled"
       The click on the pack changed nothing, even after 3 tries. The
@@ -455,8 +476,10 @@ CONTENTS
                       "" = not detected yet
     SCREEN_AREA       browser screen (filled in by the assistant)
                       (0, 0, 0, 0) = not detected yet
-    COUNTER_CENTER    place of the "x/10" counter: on the number
-                      right before the "/" (10/10: between the 1 and the 0)
+    COUNTER_CENTER    place of the top counter: on the number in the
+                      ring (old "x/10": right before the "/")
+    RED_COUNTER       red counter « 12/25 boosters gratuits »: on the
+                      number right before the "/"; (0, 0) = not placed
     MAX_CAPACITY      counter capacity: 0 = read by itself
                       (recommended), 10 = no subscription, 20 = subscription
     PACKS             all the game boosters and the place to click on
@@ -471,6 +494,8 @@ CONTENTS
                       "capacity": 20 = counter of this account (optional)
     SEQUENCE          the steps of the opening (see menu 6)
     POPUP_INTERVAL    delay between two checks of the popup
+    BOOSTERS_TAB      « Boosters » tab of the site menu, clicked to go
+                      back to the boosters page; (0, 0) = not placed
     CORNER_STOP       True = mouse in the top-left corner stops everything
     MOVE_DURATION     mouse speed (min, max), in seconds
                       default (0.5, 0.9); at least 0.3

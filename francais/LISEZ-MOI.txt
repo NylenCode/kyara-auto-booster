@@ -4,7 +4,9 @@
 
 C'EST QUOI ?
   Un petit programme qui ouvre tes boosters Kyara tout seul.
-  Il surveille le compteur en haut de la page (« 3/10 », « 7/10 »…).
+  Il surveille les compteurs de boosters : le nombre dans le rond en
+  haut de la page (« 12 ») et le compteur rouge « 12/25 boosters
+  gratuits » sous la grande image de l'accueil des boosters.
   Dès qu'il est plein (10/10, ou 20/20 avec un abonnement), il clique
   à ta place pour ouvrir les boosters, puis il recommence à attendre.
 
@@ -127,16 +129,19 @@ SOMMAIRE
   il redemandera uniquement ce qui manque.
 
   Bon à savoir pendant l'étape 6 :
-    - LE COMPTEUR (« 1/10 », « 5/10 », « 10/10 »…), en haut de la page :
-      c'est le plus important. Mets la POINTE de la souris bien sur
-      le nombre qui change, juste devant le « / ».
-          1/10    -> pointe sur le 1
-          5/10    -> pointe sur le 5
-          10/10   -> pointe ENTRE le 1 et le 0 du premier 10
-          20/20   -> pointe ENTRE le 2 et le 0 du premier 20
-                     (avec un abonnement, le compteur va jusqu'à 20)
-      Pas sur le « /10 », pas à côté du texte : sinon le programme
-      ne lit pas le compteur et n'ouvre jamais rien.
+    - LE COMPTEUR en haut de la page : c'est le plus important. Il
+      montre un nombre dans un rond qui se remplit (« 12 »). Mets la
+      POINTE de la souris bien sur ce nombre (pour « 12 » : entre le 1
+      et le 2). Pas sur le rond, pas à côté : sinon le programme ne
+      lit pas le compteur et n'ouvre jamais rien.
+      (Ancien affichage « 5/10 » : pointe sur le nombre juste devant
+      le « / » ; « 10/10 » : entre le 1 et le 0 du premier 10.)
+    - LE COMPTEUR ROUGE « 12/25 boosters gratuits » (conseillé), sous
+      la grande image de l'accueil des boosters : pointe sur le nombre
+      juste devant le « / » (pour « 12/25 » : entre le 1 et le 2).
+      C'est le seul qui montre la capacité (« /25 »).
+    - L'ONGLET « Boosters » du menu en haut du site (conseillé) : mets
+      la souris sur le mot « Boosters ».
     - Les boutons de l'écran d'ouverture (« Ouvrir 10 boosters »,
       « Tout révéler »…) ne sont visibles que pendant une ouverture.
       Si tu n'en as pas en cours, passe-les avec N.
@@ -165,13 +170,24 @@ SOMMAIRE
       marche quand même. Pour cliquer, il le passe devant une seconde,
       puis remet tout comme avant.
     - Le navigateur ne doit PAS être réduit dans la barre des tâches.
-    - Le popup « Tu es toujours là ? » est géré tout seul.
+    - Les popups « Tu es toujours là ? » et « Animations en veille »
+      (bouton « Reprendre ») sont gérés tout seuls.
+    - Si Kyara n'est plus sur la page des boosters (après « Animations
+      en veille », un clic ailleurs…), le programme clique sur l'onglet
+      « Boosters » pour y revenir : après 30 secondes (le temps de
+      regarder une autre page à la main), 4 secondes juste après un
+      popup. Il ne clique que s'il voit bien le mot « Boosters » à cet
+      endroit, et rien n'est fait si un autre onglet du navigateur est
+      affiché (YouTube…). Sans onglet placé (menu 3), c'est seulement
+      signalé.
     - Bulle « Kyara redémarre pour une mise à jour » : le programme se
       met en pause (aucun clic, même au milieu d'une ouverture) et
       reprend tout seul quand elle a disparu.
-    - Compteur rouge « 1/20 boosters gratuits » (facultatif, menu 3) :
-      s'il est placé, il est relu quand le compteur du haut est douteux
-      (pastille « +8 » posée dessus, chiffre coupé…). L'un répare l'autre.
+    - Les deux compteurs sont lus ensemble : le nombre vient du rond en
+      haut, la capacité (« /25 ») du compteur rouge. Quand l'un est
+      douteux (pastille posée dessus, chiffre coupé…), l'autre le
+      répare. Sans compteur rouge placé, la capacité vient de
+      CAPACITE_MAX, ou du rond une fois rempli.
     - S'il manque un réglage, le programme dit lequel au démarrage et
       refuse de cliquer au hasard. Lance alors l'assistant
       (python configurer_positions.py) : il te demandera ce qui manque.
@@ -377,8 +393,12 @@ SOMMAIRE
       après l'installation. Ferme et rouvre le terminal. Sinon,
       essaie  py  à la place de  python.
 
-  « No module named … »
-      L'étape 2 de l'installation n'a pas été faite.
+  « No module named … » ou « Module … absent pour ce Python »
+      L'étape 2 de l'installation n'a pas été faite. (Si plusieurs
+      Python sont installés, le programme se relance tout seul avec
+      celui qui a les outils ; ce message veut dire qu'aucun ne les a.)
+      Installe-les :
+          py -m pip install mss pyautogui pytesseract pillow
 
   « Tesseract introuvable »
       L'étape 3 de l'installation n'a pas été faite, ou Tesseract a
@@ -398,10 +418,12 @@ SOMMAIRE
   « Compteur introuvable » ou « La fenêtre a quitté son écran »
       Le navigateur a été déplacé. Remets-le où il était, ou refais
       les positions (menu 3).
-      Pour le compteur, mets bien la pointe de la souris sur le
-      nombre juste devant le « / » (le 5 de « 5/10 » ; pour « 10/10 »,
-      entre le 1 et le 0 du premier 10 ; pour « 20/20 », entre le 2
-      et le 0).
+      Pour le compteur du haut, mets bien la pointe de la souris sur
+      le nombre dans le rond (pour « 12 » : entre le 1 et le 2).
+
+  « Mot « Boosters » pas vu … : pas de clic »
+      L'onglet « Boosters » a bougé (ou la fenêtre) : refais sa
+      position (menu 3).
 
   « Page du pack jamais ouverte : ouverture annulée »
       Le clic sur le pack n'a rien changé, même après 3 essais. Le pack
@@ -456,8 +478,10 @@ SOMMAIRE
                       "" = pas encore détecté
     ZONE_ECRAN        écran du navigateur (rempli par l'assistant)
                       (0, 0, 0, 0) = pas encore détecté
-    COMPTEUR_CENTRE   endroit du compteur « x/10 » : sur le nombre
-                      juste devant le « / » (10/10 : entre le 1 et le 0)
+    COMPTEUR_CENTRE   endroit du compteur du haut : sur le nombre dans
+                      le rond (ancien « x/10 » : juste devant le « / »)
+    COMPTEUR_ROUGE    compteur rouge « 12/25 boosters gratuits » : sur
+                      le nombre juste devant le « / » ; (0, 0) = pas placé
     CAPACITE_MAX      capacité du compteur : 0 = lue toute seule
                       (conseillé), 10 = sans abonnement, 20 = abonnement
     PACKS             tous les boosters du jeu et l'endroit où cliquer
@@ -472,6 +496,8 @@ SOMMAIRE
                       "capacite": 20 = compteur de ce compte (facultatif)
     SEQUENCE          les étapes de l'ouverture (voir menu 6)
     INTERVALLE_POPUP  délai entre deux vérifications du popup
+    ONGLET_BOOSTERS   onglet « Boosters » du menu du site, cliqué pour
+                      revenir sur la page des boosters ; (0, 0) = pas placé
     ARRET_COIN_ECRAN  True = souris en haut à gauche arrête tout
     DUREE_MOUVEMENT   vitesse de la souris (min, max), en secondes
                       défaut (0.5, 0.9) ; au moins 0.3

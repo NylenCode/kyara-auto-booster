@@ -25,27 +25,30 @@ EXECUTABLE = ""
 # (0, 0, 0, 0) = pas encore détecté.
 ZONE_ECRAN = (0, 0, 0, 0)
 
-# ---------- 2. Compteur de boosters (x/10) ----------
-# Compteur « x/10 » en haut de la page Kyara : pointe de la souris sur le
-# nombre juste devant le « / » (le 5 de « 5/10 » ; « 10/10 » : entre le 1
-# et le 0 du premier 10). S'il bouge un peu,
-# le script le retrouve tout seul (recalage automatique).
+# ---------- 2. Compteurs de boosters ----------
+# Compteur en haut de la page Kyara : le nombre dans le rond (« 12 ») ;
+# pointe de la souris sur ce nombre. (Ancien affichage « 5/10 » : sur le
+# nombre juste devant le « / ».) S'il bouge un peu, le script le retrouve
+# tout seul (recalage automatique).
 # (0, 0) = position pas encore placée (vaut pour toutes les positions).
 COMPTEUR_CENTRE = (0, 0)
 # Taille de la zone lue autour du centre (largeur, hauteur). Laisser tel quel.
 COMPTEUR_TAILLE = (100, 45)
-# Compteur rouge « 1/20 boosters gratuits · +1 dans … » (facultatif) : même
-# pointage que le compteur du haut. Relu quand celui du haut est douteux
-# (pastille « +8 » posée dessus, chiffre coupé…) : l'un répare l'autre.
-# (0, 0) = pas placé : seul le compteur du haut est lu.
+# Compteur rouge « 12/25 boosters gratuits · +1 dans … », sous la grande
+# image de l'accueil des boosters (conseillé) : pointe sur le nombre juste
+# devant le « / ». Seul à montrer la capacité (« /25 ») depuis que le
+# compteur du haut n'affiche plus que le nombre ; les deux compteurs sont
+# lus ensemble et l'un répare l'autre. (0, 0) = pas placé : la capacité
+# vient de CAPACITE_MAX, ou du rond une fois rempli.
 COMPTEUR_ROUGE = (0, 0)
 # Nombre de lectures « compteur plein » d'affilée avant d'ouvrir (évite une
 # fausse lecture).
 LECTURES_STABLES = 2
 # Capacité max du compteur de boosters : 10 sans abonnement, 20 avec un
 # abonnement qui ajoute 10 de capacité (« x/20 »). 0 = lue toute seule sur
-# le compteur (conseillé : marche aussi avec plusieurs comptes, abonnés ou
-# non). Dans tous les cas, le script ouvre quand le compteur est plein.
+# le compteur rouge, ou sur le rond une fois rempli (conseillé : marche
+# aussi avec plusieurs comptes, abonnés ou non). Dans tous les cas, le
+# script ouvre quand le compteur est plein.
 CAPACITE_MAX = 0
 # Pause entre deux lectures du compteur, en secondes.
 INTERVALLE = 2
@@ -136,11 +139,16 @@ SEQUENCE = [
 # (0, 0) = pas placé : ces 5 boosters restent sur le compteur.
 BOUTON_5_BOOSTERS = (0, 0)
 
-# ---------- 5. Popup « Tu es toujours là ? » ----------
-# Le popup est cherché sur tout ZONE_ECRAN ; le clic se fait sur son bouton.
-# Vérification complète toutes les N secondes (un test rapide tourne en plus
-# à chaque passage et la déclenche dès que le bouton rouge apparaît).
+# ---------- 5. Popups et page des boosters ----------
+# Popups « Tu es toujours là ? » et « Animations en veille » : cherchés sur
+# tout ZONE_ECRAN ; le clic se fait sur leur bouton. Vérification complète
+# toutes les N secondes (un test rapide tourne en plus à chaque passage et
+# la déclenche dès que le bouton rouge apparaît).
 INTERVALLE_POPUP = 10
+# Onglet « Boosters » du menu en haut du site (conseillé) : si Kyara quitte
+# la page des boosters (mise en veille des animations…), le script clique
+# dessus pour y revenir. (0, 0) = pas placé : c'est seulement signalé.
+ONGLET_BOOSTERS = (0, 0)
 
 # ---------- 6. Souris ----------
 # Mettre la souris dans le coin haut-gauche de l'écran principal arrête le script.
@@ -158,11 +166,12 @@ import re
 import time
 from datetime import datetime
 
+# kyara_commun d'abord : message clair s'il manque un module à ce Python.
+import kyara_commun
 import pyautogui
 import pytesseract
 from PIL import ImageChops, ImageOps, ImageStat
 
-import kyara_commun
 from kyara_commun import (
     BOOSTERS_PAR_OUVERTURE,
     BOOSTERS_RESTE,
@@ -647,7 +656,8 @@ def main():
     boucle_principale(NOM, detecteur, popup, ouvrir_boosters, INTERVALLE,
                       pause_apres_ouverture=PAUSE_APRES_OUVERTURE,
                       a_chaque_tour=suivre_compte,
-                      bouton_5=tuple(BOUTON_5_BOOSTERS) != (0, 0))
+                      bouton_5=tuple(BOUTON_5_BOOSTERS) != (0, 0),
+                      onglet_boosters=ONGLET_BOOSTERS)
 
 
 if __name__ == "__main__":

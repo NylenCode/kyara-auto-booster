@@ -25,27 +25,30 @@ EXECUTABLE = ""
 # (0, 0, 0, 0) = not detected yet.
 SCREEN_AREA = (0, 0, 0, 0)
 
-# ---------- 2. Booster counter (x/10) ----------
-# "x/10" counter at the top of the Kyara page: tip of the mouse on the
-# number right before the "/" (the 5 of "5/10"; "10/10": between the 1
-# and the 0 of the first 10). If it moves a little,
-# the script finds it again by itself (automatic re-centering).
+# ---------- 2. Booster counters ----------
+# Counter at the top of the Kyara page: the number in the ring ("12");
+# tip of the mouse on this number. (Old display "5/10": on the number
+# right before the "/".) If it moves a little, the script finds it again
+# by itself (automatic re-centering).
 # (0, 0) = position not placed yet (applies to all positions).
 COUNTER_CENTER = (0, 0)
 # Size of the area read around the center (width, height). Leave as is.
 COUNTER_SIZE = (100, 45)
-# Red counter "1/20 boosters gratuits · +1 dans …" (optional): same
-# pointing as the top counter. Read when the top one is doubtful ("+8"
-# badge placed over it, cut digit…): each one repairs the other.
-# (0, 0) = not placed: only the top counter is read.
+# Red counter "12/25 boosters gratuits · +1 dans …", below the big image
+# of the boosters home page (recommended): point at the number right
+# before the "/". The only one showing the capacity ("/25") since the top
+# counter shows only the number; both counters are read together and each
+# one repairs the other. (0, 0) = not placed: the capacity comes from
+# MAX_CAPACITY, or from the ring once full.
 RED_COUNTER = (0, 0)
 # Number of "full counter" readings in a row before opening (avoids a
 # wrong reading).
 STABLE_READINGS = 2
 # Max capacity of the booster counter: 10 without a subscription, 20 with a
 # subscription that adds 10 capacity ("x/20"). 0 = read by itself on
-# the counter (recommended: also works with several accounts, subscribed or
-# not). In every case, the script opens when the counter is full.
+# the red counter, or on the ring once full (recommended: also works
+# with several accounts, subscribed or not). In every case, the
+# script opens when the counter is full.
 MAX_CAPACITY = 0
 # Pause between two readings of the counter, in seconds.
 INTERVAL = 2
@@ -137,11 +140,16 @@ SEQUENCE = [
 # (0, 0) = not placed: these 5 boosters stay on the counter.
 BUTTON_5_BOOSTERS = (0, 0)
 
-# ---------- 5. « Tu es toujours là ? » ("Are you still there?") popup ----------
-# The popup is looked for on the whole SCREEN_AREA; the click is on its button.
-# Full check every N seconds (a quick test also runs at each pass and
-# triggers it as soon as the red button appears).
+# ---------- 5. Popups and boosters page ----------
+# Popups « Tu es toujours là ? » ("Are you still there?") and « Animations
+# en veille » (animations asleep): looked for on the whole SCREEN_AREA; the
+# click is on their button. Full check every N seconds (a quick test also
+# runs at each pass and triggers it as soon as the red button appears).
 POPUP_INTERVAL = 10
+# « Boosters » tab of the menu at the top of the site (recommended): if Kyara
+# leaves the boosters page (animations put to sleep…), the script clicks
+# on it to go back. (0, 0) = not placed: it is only reported.
+BOOSTERS_TAB = (0, 0)
 
 # ---------- 6. Mouse ----------
 # Putting the mouse in the top-left corner of the main screen stops the script.
@@ -159,11 +167,12 @@ import re
 import time
 from datetime import datetime
 
+# kyara_common first: clear message if a module is missing for this Python.
+import kyara_common
 import pyautogui
 import pytesseract
 from PIL import ImageChops, ImageOps, ImageStat
 
-import kyara_common
 from kyara_common import (
     BOOSTERS_PER_OPENING,
     BOOSTERS_LEFT,
@@ -649,7 +658,8 @@ def main():
     main_loop(NAME, detector, popup, open_boosters, INTERVAL,
               pause_after_opening=PAUSE_AFTER_OPENING,
               each_pass=follow_account,
-              button_5=tuple(BUTTON_5_BOOSTERS) != (0, 0))
+              button_5=tuple(BUTTON_5_BOOSTERS) != (0, 0),
+              boosters_tab=BOOSTERS_TAB)
 
 
 if __name__ == "__main__":

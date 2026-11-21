@@ -7,6 +7,7 @@ configuration is at the top of kyara_booster.py.
 import ctypes
 import ctypes.wintypes as wt
 import hashlib
+import math
 import os
 import random
 import re
@@ -15,10 +16,15 @@ import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
 
-import mss
-import pyautogui
-import pytesseract
-from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps, ImageStat
+try:
+    import mss
+    import pyautogui
+    import pytesseract
+    from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps, ImageStat
+except ImportError as error:
+    # Several Pythons installed: relaunch with the one that has the modules.
+    from coordination import relaunch_with_the_modules
+    relaunch_with_the_modules(error, ('mss', 'pyautogui', 'pytesseract', 'PIL'))
 
 from coordination import request_turn, report_counter, end_turn
 
@@ -84,6 +90,23 @@ POSSIBLE_CAPACITIES = tuple(range(10, 55, 5))
 OCR_CONFIG = "-c tessedit_char_whitelist=0123456789/"
 OCR_PSM = (7, 6)
 THRESHOLD_OFFSETS = (0, -30, 30)
+
+# --- Ring counter (site of 2026-11-17) ---
+# At the top of the page, only the number is left ("12"), in a ring that
+# fills up (12/25: half). The capacity comes from the red counter "12/25",
+# from MAX_CAPACITY, or from the full ring. Gray-white digits: a pixel whose
+# colors differ by more than GRAY_SPREAD, and by more than GRAY_SATURATION
+# times its brightest color, is not part of them (the colored edges of the
+# digits, smoothed by the browser, are part of them).
+GRAY_SPREAD = 40
+GRAY_SATURATION = 0.5
+# Height of a digit (pixels); radius of the ring, in digit heights.
+DIGIT_HEIGHT = (5, 30)
+RING_RADIUS = (1.1, 2.1)
+# Ring filled from N degrees: full counter.
+FULL_RING = 350
+NUMBER_OCR_CONFIG = "-c tessedit_char_whitelist=0123456789"
+NUMBER_PSM = (7, 8, 13)
 
 # Without any change, the counter value is printed again every N seconds.
 PERIODIC_DISPLAY = 60
@@ -322,6 +345,16 @@ class BrowserWindow:
 
         _user32.EnumWindows(callback, 0)
         return max(candidates)[1] if candidates else None
+
+    def title(self):
+        """Title of the window: tab shown ("Kyara — Boosters — Opera"), "" if missing."""
+        hwnd = self.handle()
+        if not hwnd:
+            return ""
+        length = _user32.GetWindowTextLengthW(hwnd)
+        title = ctypes.create_unicode_buffer(length + 1)
+        _user32.GetWindowTextW(hwnd, title, length + 1)
+        return title.value
 
     def handle(self):
         """The followed window, or None if it is closed or minimized."""
@@ -819,6 +852,153 @@ def analyze_glyphs(image, capacity=None, reading=""):
 
 
 # ============================================================
+# RING COUNTER (number alone in a ring)
+# ============================================================
+def keep_gray(image):
+    """
+    Keeps only the pixels with little color (gray-white digits of the ring
+    counter), in grayscale: the red ring, the orange lightning and the
+    colored background fade away.
+    """
+    r, g, b = image.convert("RGB").split()
+    dark = ImageChops.darker(r, ImageChops.darker(g, b))
+    light = ImageChops.lighter(r, ImageChops.lighter(g, b))
+    spread = ImageChops.subtract(light, dark)
+    little_spread = spread.point(lambda v: 255 if v <= GRAY_SPREAD else 0)
+    little_saturated = ImageChops.subtract(spread, light.point(lambda v: int(v * GRAY_SATURATION)))
+    little_saturated = little_saturated.point(lambda v: 0 if v else 255)
+    return ImageChops.multiply(dark, ImageChops.lighter(little_spread, little_saturated))
+
+
+def components(mask):
+    """Spots of a mask (non-zero pixels touching each other): [(x0, y0, x1, y1, pixels)]."""
+    width, height = mask.size
+    pixels = mask.load()
+    seen = set()
+    spots = []
+    for y in range(height):
+        for x in range(width):
+            if not pixels[x, y] or (x, y) in seen:
+                continue
+            stack, points = [(x, y)], []
+            seen.add((x, y))
+            while stack:
+                a, b = stack.pop()
+                points.append((a, b))
+                for c in (a - 1, a, a + 1):
+                    for d in (b - 1, b, b + 1):
+                        if (0 <= c < width and 0 <= d < height and pixels[c, d]
+                                and (c, d) not in seen):
+                            seen.add((c, d))
+                            stack.append((c, d))
+            xs = [p[0] for p in points]
+            ys = [p[1] for p in points]
+            spots.append((min(xs), min(ys), max(xs) + 1, max(ys) + 1, len(points)))
+    return spots
+
+
+def locate_number(image):
+    """
+    Light digits closest to the center of the image (the number of the ring
+    counter): (gray, frame (x0, y0, x1, y1), frame of each digit), or None.
+    """
+    gray = keep_gray(image)
+    if ImageStat.Stat(gray).stddev[0] < 3:
+        return None
+    threshold = otsu_threshold(gray)
+    mask = gray.point(lambda v: 255 if v > threshold else 0)
+    spots = [t for t in components(mask)
+             if DIGIT_HEIGHT[0] <= t[3] - t[1] <= DIGIT_HEIGHT[1] and t[4] >= 6
+             and t[2] - t[0] <= 3 * (t[3] - t[1])]
+    if not spots:
+        return None
+    cx, cy = image.width / 2, image.height / 2
+    group = [min(spots, key=lambda t: abs((t[0] + t[2]) / 2 - cx) + abs((t[1] + t[3]) / 2 - cy))]
+    # Neighbor digits: same line height, less than 4 pixels apart.
+    added = True
+    while added:
+        added = False
+        x0, x1 = min(t[0] for t in group), max(t[2] for t in group)
+        y0, y1 = min(t[1] for t in group), max(t[3] for t in group)
+        for t in spots:
+            overlap = min(y1, t[3]) - max(y0, t[1])
+            if (t not in group and overlap >= 0.6 * min(y1 - y0, t[3] - t[1])
+                    and (0 <= t[0] - x1 <= 4 or 0 <= x0 - t[2] <= 4)):
+                group.append(t)
+                added = True
+                break
+    if len(group) > 3:
+        return None
+    group.sort()
+    frame = (min(t[0] for t in group), min(t[1] for t in group),
+             max(t[2] for t in group), max(t[3] for t in group))
+    return gray, frame, [t[:4] for t in group]
+
+
+def ring_arc(image, frame):
+    """
+    Degrees (0 to 360) of the ring filled around the number, starting from
+    the top, clockwise: colored pixels (any color) on the circle around the
+    digits. 360 = full ring.
+    """
+    x0, y0, x1, y1 = frame
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    height = y1 - y0
+    pixels = image.convert("RGB").load()
+    sectors = set()
+    for y in range(image.height):
+        for x in range(image.width):
+            r, g, b = pixels[x, y]
+            if max(r, g, b) < 50 or max(r, g, b) - min(r, g, b) < 40:
+                continue
+            dx, dy = x + 0.5 - cx, y + 0.5 - cy
+            if RING_RADIUS[0] * height <= (dx * dx + dy * dy) ** 0.5 <= RING_RADIUS[1] * height:
+                angle = math.degrees(math.atan2(dx, -dy)) % 360
+                sectors.add(int(angle // 10))
+    # Continuous filling from the top (the dots leave gaps).
+    end = -1
+    for sector in range(36):
+        if sector in sectors:
+            end = sector
+        elif sector - end > 3:
+            break
+    return (end + 1) * 10
+
+
+def read_number(image):
+    """
+    Number of the ring counter ("12"): (number, degrees of the ring) or None.
+    OCR of the digits only, enlarged and softened; a reading whose number of
+    digits contradicts the spots seen ("7" for two separate digits) is
+    discarded and another pass is made.
+    """
+    found = locate_number(image)
+    if found is None:
+        return None
+    gray, (x0, y0, x1, y1), boxes = found
+    margin = 6
+    piece = ImageOps.autocontrast(gray.crop((x0 - margin, y0 - margin, x1 + margin, y1 + margin)))
+    piece = piece.resize((piece.width * 5, piece.height * 5), Image.Resampling.BICUBIC)
+    piece = piece.filter(ImageFilter.GaussianBlur(1))
+    threshold = otsu_threshold(piece)
+    binary = ImageOps.expand(ImageOps.invert(piece.point(lambda v: 255 if v > threshold else 0)),
+                             border=20, fill=255)
+    # Spots all the size of a digit: their number is the number of digits.
+    height = y1 - y0
+    separate = all(b[2] - b[0] <= height for b in boxes)
+    for psm in NUMBER_PSM:
+        try:
+            text = pytesseract.image_to_string(
+                binary, config=f"--oem 3 --psm {psm} {NUMBER_OCR_CONFIG}")
+        except Exception:
+            continue
+        text = re.sub(r"\D", "", text)
+        if 1 <= len(text) <= 2 and (not separate or len(text) == len(boxes)):
+            return int(text), ring_arc(image, (x0, y0, x1, y1))
+    return None
+
+
+# ============================================================
 # COUNTER DETECTION
 # ============================================================
 class CounterDetector:
@@ -839,6 +1019,8 @@ class CounterDetector:
 
     # "Counter found again / not found" messages of the re-centering.
     RECENTER_MESSAGES = True
+    # Ring counter accepted (number alone, without "/10"): the top one.
+    NUMBER_ONLY = True
 
     def __init__(self, browser, center, size=(100, 45), stable_readings=2,
                  capacity=0, backup=(0, 0)):
@@ -893,8 +1075,14 @@ class CounterDetector:
             self.backup.reset()
 
     def counter_visible(self):
-        """True if the counter is at its place: still on the home page."""
-        image = capture_area(self.region)
+        """
+        True if the "x/10" counter is at its place: still on the home page.
+        The top ring counter stays on every page: then the red counter, which
+        belongs to the home page, tells it.
+        """
+        if self.backup is not None:
+            return self.backup.counter_visible()
+        image = self._capture(self.region)
         for hardening in THRESHOLD_HARDENINGS:
             glyphs = split_glyphs(image, hardening)
             if glyphs is not None and is_slash(glyphs[-3]):
@@ -920,6 +1108,13 @@ class CounterDetector:
             if result is not None and any(map(is_slash, result[0])):
                 x0, x1, _, _ = result[1]
                 return x0 < EDGE_MARGIN or x1 > image.width - EDGE_MARGIN
+        if self.NUMBER_ONLY:
+            # Ring counter: the number and its ring must fit in the area.
+            found = locate_number(image)
+            if found is not None:
+                x0, y0, x1, y1 = found[1]
+                margin = max(EDGE_MARGIN, int(RING_RADIUS[1] * (y1 - y0)) - (x1 - x0) // 2)
+                return x0 < margin or x1 > image.width - margin
         return True
 
     def recenter(self):
@@ -940,6 +1135,12 @@ class CounterDetector:
         image.save(self.debug_image_search)
 
         center = locate_counter(image, self.size)
+        if center is None and self.NUMBER_ONLY:
+            # Ring counter: the number closest to the expected position.
+            found = locate_number(image)
+            if found is not None:
+                x0, y0, x1, y1 = found[1]
+                center = ((x0 + x1) / 2, (y0 + y1) / 2)
         if center is None:
             # Message limited to one every few minutes.
             if (self.RECENTER_MESSAGES and time.monotonic() - self._last_not_found_message
@@ -1083,7 +1284,9 @@ class CounterDetector:
             report_counter(self.browser, False, f"capture error: {error}")
             return False
 
-        signature = hashlib.md5(image.tobytes()).digest()
+        # The capacity counts: learned later (red counter), it changes the
+        # reading of the ring counter ("12/?" becomes "12/25").
+        signature = hashlib.md5(image.tobytes() + str(self.capacity_read).encode()).digest()
 
         if signature == self._signature:
             raw_full, value, detail = self._last_result
@@ -1148,7 +1351,8 @@ class CounterDetector:
         if other is None:
             return full, value, detail
         red_full, red_value, red_detail = other
-        if self.capacity_read is None and self.backup.capacity_read:
+        # Only the red counter shows the capacity ("12/25"): it prevails.
+        if self.backup.capacity_read and self.backup.capacity_read != self.capacity_read:
             self.capacity_read = self.backup.capacity_read
         m = re.fullmatch(r"(\d{1,2})/(\d{2})", value)
         doubtful = not m or int(m[1]) > int(m[2]) or "OCR" in detail
@@ -1189,6 +1393,10 @@ class CounterDetector:
         # Capacity read again at each change of image (an account with or
         # without a subscription may be logged in), even when it is set.
         read = self._quick_reading(image)
+        if self.NUMBER_ONLY and "/" not in read:
+            result = self._analyze_ring(image)
+            if result is not None:
+                return result
         self._learn_capacity(read)
         total = self.capacity_read or "?"
 
@@ -1218,6 +1426,38 @@ class CounterDetector:
         value = f"{numerator}/{self.capacity_read or '?'}" if valid else "?"
         return False, value, f"{detail}, OCR: {readings}"
 
+    def _analyze_ring(self, image):
+        """
+        Ring counter ("12" in a ring): full when the number reaches the
+        capacity. None if no number is read.
+        """
+        reading = read_number(image)
+        if reading is None:
+            return None
+        number, degrees = reading
+        capacity = self.capacity_read
+        if not capacity and degrees >= FULL_RING and number in POSSIBLE_CAPACITIES:
+            print(f"{self.prefix} Counter ring full at {number}: "
+                  f"capacity {number} boosters.")
+            self.capacity_read = capacity = number
+        if capacity and number > capacity and number >= 10:
+            # Slashed zero read "6", "8" or "9" (16 for 10).
+            corrected = int(number_read(str(number)))
+            number = corrected if corrected <= capacity else number
+        detail = f"ring counter, ring {degrees}°"
+        if not capacity:
+            return False, f"{number}/?", f"{detail}, capacity not known yet"
+        # The ring counts too (one segment per booster): misread digit
+        # ("6" read "8") -> number given by the ring.
+        by_ring = round(degrees * capacity / 360)
+        if abs(by_ring - number) > 1:
+            detail += f", read {number}"
+            number = by_ring
+        # Full only with the complete ring: never an opening on a digit
+        # alone (the "10" of "10k" for example).
+        return (number == capacity and degrees >= FULL_RING,
+                f"{number}/{capacity}", detail)
+
 
 
 def keep_red(image):
@@ -1225,12 +1465,12 @@ def keep_red(image):
     Keeps only the red pixels (digits of the red counter), light on a black
     background: the gray text, the white timer and the background disappear.
     """
-    gray = Image.new("L", image.size)
-    gray.putdata([
-        r - max(g, b) if r >= 80 and r > 1.8 * max(g, b) else 0
-        for r, g, b in image.convert("RGB").getdata()
-    ])
-    return gray.convert("RGB")
+    r, g, b = image.convert("RGB").split()
+    other = ImageChops.lighter(g, b)
+    enough = r.point(lambda v: 255 if v >= 80 else 0)
+    dominant = ImageChops.subtract(r, other.point(lambda v: min(255, int(1.8 * v))))
+    kept = ImageChops.multiply(enough, dominant.point(lambda v: 255 if v else 0))
+    return ImageChops.multiply(ImageChops.subtract(r, other), kept).convert("RGB")
 
 
 class BackupCounter(CounterDetector):
@@ -1241,6 +1481,7 @@ class BackupCounter(CounterDetector):
     it may not be visible on the page shown.
     """
     RECENTER_MESSAGES = False
+    NUMBER_ONLY = False
 
     def __init__(self, browser, center, size):
         super().__init__(f"{browser}_red", center, size)
@@ -1274,8 +1515,12 @@ class BackupCounter(CounterDetector):
 # ============================================================
 # PRESENCE POPUP
 # ============================================================
-# Title of the game popup « Tu es toujours là ? » ("Are you still there?").
-POPUP_TITLE_WORDS = ("toujours", "encore", "still")
+# Title of the popup -> button clicked: « Tu es toujours là ? » ("Are you
+# still there?") and « Animations en veille » ("animations asleep", shown when
+# the tab stayed behind another window).
+POPUP_TITLE_WORDS = ("toujours", "encore", "still", "veille")
+POPUP_BUTTON = {"veille": "« Reprendre » (resume) button"}
+DEFAULT_POPUP_BUTTON = "« Je suis là » button"
 
 
 def distance(a, b):
@@ -1345,7 +1590,10 @@ class PopupWatcher:
         self._last = time.monotonic() - self.interval + seconds
 
     def _locate(self, image):
-        """Returns (x, y) of the button in the image, None if no popup."""
+        """
+        Returns (x, y, name of the button) in the image, None if no popup,
+        "not_found" if the title is seen without a button.
+        """
         gray = ImageOps.autocontrast(ImageOps.grayscale(image))
         data = pytesseract.image_to_data(
             gray, config="--oem 3 --psm 11", output_type=pytesseract.Output.DICT
@@ -1371,24 +1619,25 @@ class PopupWatcher:
             )
 
         titles = [
-            word for word in words
-            if any(distance(word[0], title) <= 1 for title in POPUP_TITLE_WORDS)
+            word + (title,) for word in words for title in POPUP_TITLE_WORDS
+            if distance(word[0], title) <= 1
         ]
         if not titles:
             return None
 
         # The text is not enough (it may show elsewhere, in another
         # window): the solid red button right below it is needed too.
-        for _, tx, ty, tw, th in titles:
+        for _, tx, ty, tw, th, title in titles:
             position = self._red_button(image, tx, ty, tw, th)
             if position:
-                return position
+                return position + (POPUP_BUTTON.get(title, DEFAULT_POPUP_BUTTON),)
 
         # « toujours » alone is a common word: report it only if it really
         # looks like the title (« tu es » / « tes » / "you are" just before).
         for title in titles:
-            if any(w[0] in ("es", "tu", "tes", "tues", "you", "are") and neighbor(w, title)
-                   for w in words):
+            if title[5] != "veille" and any(
+                    w[0] in ("es", "tu", "tes", "tues", "you", "are") and neighbor(w, title[:5])
+                    for w in words):
                 return "not_found"
         return None
 
@@ -1457,7 +1706,8 @@ class PopupWatcher:
             )
             return False
 
-        target = (self.area[0] + position[0], self.area[1] + position[1])
+        x, y, button = position
+        target = (self.area[0] + x, self.area[1] + y)
 
         # The click uses the mouse: the lock is needed, but without waiting
         # for priority (it is very short).
@@ -1466,9 +1716,9 @@ class PopupWatcher:
             return False
 
         try:
-            print(f"{self.prefix} Presence popup detected.")
+            print(f"{self.prefix} Popup detected: click on the {button}.")
             with browser_in_front():
-                click(self.browser, target, "« Je suis là » button", wait=1.5)
+                click(self.browser, target, button, wait=1.5)
         finally:
             end_turn(self.browser, hand_over=False)
         # Checks again quickly that the popup is really gone.
@@ -1599,6 +1849,165 @@ def follow_update(browser, area):
 
 
 # ============================================================
+# BOOSTERS PAGE
+# ============================================================
+# « Boosters » tab of the site menu: underlined with a red line on the
+# boosters page. Line looked for in this band below the word (dx, dy, width,
+# height), on at least N pixels of a same row.
+UNDERLINE_BAND = (-45, 12, 90, 40)
+UNDERLINE_PIXELS = 25
+# Page left for N seconds (time to read another page by hand): back through
+# the tab. Right after a popup: faster return.
+PAGE_LEFT_DELAY = 30
+PAGE_LEFT_AFTER_POPUP = 4
+WAIT_AFTER_RETURN = 3
+# After N returns in a row without finding the page again: new try every
+# PAUSE_AFTER_FAILURES seconds only (tab position to check?).
+MAX_RETURNS = 3
+PAUSE_AFTER_FAILURES = 600
+
+
+def is_bright_red(pixel):
+    """Red of the line below the active tab, even darkened by an overlay."""
+    r, g, b = pixel[:3]
+    return r >= 60 and r > 1.8 * max(g, b)
+
+
+class PageWatcher:
+    """
+    Checks that the Kyara tab shows the boosters page: window title
+    ("Kyara — Boosters") and red line below the « Boosters » tab. Page left
+    (animations put to sleep, click elsewhere…): click on the « Boosters » tab
+    to go back. Nothing is done if another tab or another window is shown.
+    """
+
+    def __init__(self, browser, tab, detector):
+        self.browser = browser
+        self.prefix = f"[{browser.upper()}]"
+        self.tab = tuple(tab)
+        self.detector = detector
+        self._left_since = None
+        self._fast_until = 0.0
+        self._returns = 0
+        self._last_return = float("-inf")
+        self._no_tab_reported = False
+
+    @property
+    def placed(self):
+        return self.tab != (0, 0)
+
+    def _underlined(self):
+        dx, dy, width, height = UNDERLINE_BAND
+        image = capture_area((self.tab[0] + dx, self.tab[1] + dy, width, height))
+        pixels = image.convert("RGB").load()
+        return any(
+            sum(is_bright_red(pixels[x, y]) for x in range(width)) >= UNDERLINE_PIXELS
+            for y in range(height)
+        )
+
+    def state(self):
+        """"boosters", "elsewhere" (other Kyara page) or None (Kyara not shown)."""
+        title = normalize_text(_window.title()) if _window is not None else ""
+        if title:
+            if "kyara" not in title:
+                return None
+        elif not self.detector.readable:
+            return None
+        if title and "booster" not in title:
+            return "elsewhere"
+        if self.placed and not self._underlined():
+            return "elsewhere"
+        return "boosters"
+
+    def after_popup(self):
+        """Popup clicked: the page may have changed, fast return if needed."""
+        self._fast_until = time.monotonic() + 30
+
+    def check(self):
+        """While waiting: boosters page left -> going back. True if clicked."""
+        if self.detector.screen_off:
+            return False
+        try:
+            state = self.state()
+        except Exception as error:
+            print(f"{self.prefix} [PAGE ERROR] {error}")
+            return False
+        now = time.monotonic()
+        if state != "elsewhere":
+            self._left_since = None
+            if state == "boosters":
+                self._returns = 0
+            return False
+        if self._left_since is None:
+            self._left_since = now
+        delay = (PAGE_LEFT_AFTER_POPUP if now < self._fast_until
+                 else PAGE_LEFT_DELAY)
+        if now - self._left_since < delay:
+            return False
+        if not self.placed:
+            if not self._no_tab_reported:
+                print(f"{self.prefix} Kyara is no longer on the boosters page. To go back "
+                      "on its own, place the « Boosters » tab (menu 3 of "
+                      "configure_positions.py).")
+                self._no_tab_reported = True
+            return False
+        wait = PAUSE_AFTER_FAILURES if self._returns >= MAX_RETURNS else PAGE_LEFT_DELAY
+        if now - self._last_return < wait:
+            return False
+        if not request_turn(self.browser, priority=True, reason="page"):
+            return False
+        try:
+            print(f"{self.prefix} Kyara is no longer on the boosters page: going back.")
+            with browser_in_front():
+                self._go_back()
+        finally:
+            end_turn(self.browser, hand_over=False)
+        return True
+
+    def _tab_visible(self):
+        """True if the word « Boosters » is really below the position of the tab."""
+        x, y = self.tab
+        gray = ImageOps.autocontrast(ImageOps.grayscale(capture_area((x - 50, y - 18, 100, 36))))
+        gray = gray.resize((gray.width * 3, gray.height * 3), Image.Resampling.BICUBIC)
+        return "booster" in normalize_text(
+            pytesseract.image_to_string(gray, config="--oem 3 --psm 6"))
+
+    def _go_back(self):
+        self._last_return = time.monotonic()
+        self._left_since = None
+        self._returns += 1
+        # Never a blind click: the word « Boosters » must be there.
+        if not self._tab_visible():
+            print(f"{self.prefix} Word « Boosters » not seen at {self.tab}: no click. "
+                  "Position of the tab to check (menu 3 of configure_positions.py)?")
+            return
+        click(self.browser, self.tab, "« Boosters » tab", wait=WAIT_AFTER_RETURN)
+        self.detector.reset()
+        if self._returns == MAX_RETURNS and self.state() == "elsewhere":
+            print(f"{self.prefix} Still not on the boosters page after {MAX_RETURNS} "
+                  "clicks: position of the « Boosters » tab to check (menu 3 of "
+                  f"configure_positions.py)? New try every {PAUSE_AFTER_FAILURES // 60} min.")
+
+    def before_opening(self):
+        """
+        Right before an opening (turn obtained, browser in front): the boosters
+        home page must be shown (line below the tab, red counter visible if it
+        is placed), otherwise click on the tab.
+        """
+        if not self.placed:
+            return
+        try:
+            home = self.state() != "elsewhere" and (
+                self.detector.backup is None or self.detector.counter_visible())
+        except Exception as error:
+            print(f"{self.prefix} [PAGE ERROR] {error}")
+            return
+        if not home:
+            print(f"{self.prefix} Boosters home page not shown: click on the « Boosters » tab.")
+            self._go_back()
+
+
+# ============================================================
 # CLICKS
 # ============================================================
 def click(browser, position, description="", wait=0.5, double=False):
@@ -1677,13 +2086,15 @@ def batches_to_open(capacity, button_5):
 
 
 def main_loop(browser, detector, popup, sequence, interval=2,
-              pause_after_opening=5, each_pass=None, button_5=False):
+              pause_after_opening=5, each_pass=None, button_5=False,
+              boosters_tab=(0, 0)):
     """
     Continuous detection; opening only when the lock is obtained.
     Waiting for one's turn never blocks the reading of the counter.
     `each_pass`: function called at each pass (e.g. following the account).
     `button_5`: true if the "×5" button is placed. `sequence` receives the
-    number of boosters to open.
+    number of boosters to open. `boosters_tab`: « Boosters » tab of the site
+    menu, clicked to go back to the boosters page.
     """
     from coordination import release_at_startup
 
@@ -1692,6 +2103,7 @@ def main_loop(browser, detector, popup, sequence, interval=2,
     detector.screen_area = popup.area
     follow_window(browser, popup.area)
     update = follow_update(browser, popup.area)
+    page = PageWatcher(browser, boosters_tab, detector)
 
     try:
         print(f"{prefix} Tesseract: {pytesseract.get_tesseract_version()}")
@@ -1710,9 +2122,11 @@ def main_loop(browser, detector, popup, sequence, interval=2,
                     detector.reset()
                     continue
                 if not detector.screen_off:
-                    popup.check(urgent=not detector.readable)
+                    if popup.check(urgent=not detector.readable):
+                        page.after_popup()
                     if each_pass:
                         each_pass()
+                    page.check()
 
                 if detector.read() and request_turn(browser):
                     print(f"{prefix} Full counter confirmed and mouse free: opening.")
@@ -1731,6 +2145,7 @@ def main_loop(browser, detector, popup, sequence, interval=2,
                                     popup.check(urgent=True)
                                     print(f"{prefix} Counter at {capacity}: "
                                           f"opening {number}/{len(batches)} ({batch} boosters).")
+                                page.before_opening()
                                 sequence(batch)
                     finally:
                         end_turn(browser)

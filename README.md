@@ -10,17 +10,17 @@ Opens your **Kyara** boosters automatically, as soon as the counter is full.
 
 ## What it does
 
-- Watches the booster counter at the top of the page (`3/10`, `7/10`…).
+- Watches **both booster counters**: the number in the ring at the top of the page (`12`) and the red counter below the big image (`12/25 boosters gratuits`), which gives the capacity. Each one repairs the other when a reading is doubtful.
 - When it is full (`10/10`, `20/20` with a subscription, `15/15` or `25/25` with an event bonus), it clicks to open the boosters, then waits again.
 - At `20/20` it opens **twice in a row**, because the game button only opens 10 at a time. At `15/15` and `25/25` it then opens the 5 boosters left with the `×5` button.
-- **Reads the counter capacity by itself** (10, 15, 20, 25…) and adapts if it changes.
+- **Reads the counter capacity by itself** (10, 15, 20, 25…) and adapts if it changes. (The old `5/10` display at the top still works.)
 - **Rotation**: opens your chosen packs in turn (e.g. Isekai, Shonen Mix, Isekai…).
 - **Card hunt**: opens a pack until a given card drops, then switches to other packs.
 - **Several accounts**: recognizes the logged-in account by its profile picture; each account can have its own packs and its own counter capacity.
 - **Several browsers at the same time** (e.g. Opera + Brave): the scripts take turns with the mouse.
-- Handles the « Tu es toujours là ? » ("Are you still there?") popup.
+- Handles the « Tu es toujours là ? » ("Are you still there?") and « Animations en veille » (animations asleep, « Reprendre » button) popups.
+- **Goes back to the boosters page** if Kyara left it: click on the « Boosters » tab of the menu, only if the word « Boosters » is really seen there.
 - **Pauses during Kyara updates** (« Kyara redémarre pour une mise à jour » bubble): no click until the game is back, even in the middle of an opening.
-- Optional **red backup counter** (« 1/20 boosters gratuits »): read when the top counter is doubtful, so a misread never blocks the openings.
 - The browser can stay behind other windows; the mouse glides like a real hand.
 - **No file to edit by hand**: an assistant (`configure_positions.py`) asks simple questions. You place the mouse on each button and press **G**.
 
@@ -70,6 +70,8 @@ winget install -e --id UB-Mannheim.TesseractOCR
    A second browser set up in the assistant (e.g. named `brave`): `run.bat brave` in a terminal.
 
 To stop: `Ctrl + C`, or move the mouse to the top-left corner of the screen.
+
+> Several Pythons installed: if the one started does not have the tools, the program relaunches itself with another Python that has them. Otherwise it says so and waits for Enter; then install them for this one: `py -m pip install -r requirements.txt`.
 
 The full step-by-step guide (install, assistant menus, accounts, two browsers, troubleshooting) is in **[english/README.txt](english/README.txt)**.
 

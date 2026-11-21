@@ -52,8 +52,13 @@ import time
 import unicodedata
 from pathlib import Path
 
-import mss
-import pyautogui
+try:
+    import mss
+    import pyautogui
+except ImportError as erreur:
+    # Plusieurs Python installés : relance avec celui qui a les modules.
+    from coordination import relancer_avec_les_modules
+    relancer_avec_les_modules(erreur, ('mss', 'pyautogui'))
 
 DOSSIER = Path(__file__).resolve().parent
 FICHIER_PAR_DEFAUT = DOSSIER / "kyara_booster.py"
@@ -113,14 +118,16 @@ _kernel32.GetModuleHandleW.argtypes = (ctypes.c_wchar_p,)
 POSITION = r"(?P<pos>\(-?\d+, -?\d+\))"
 LIBELLE_BOUTON_5 = ("le bouton « ×5 » de la page d'un pack, à gauche de « ×10 » (facultatif : "
                     "ouvre les 5 boosters restants d'un compteur à 15 ou 25)")
-LIBELLE_COMPTEUR_ROUGE = ("le compteur rouge « x/20 boosters gratuits » (facultatif : relu quand "
-                          "le compteur du haut est douteux) : pointe sur le nombre juste devant le « / »")
+LIBELLE_COMPTEUR_ROUGE = ("le compteur rouge « 12/25 boosters gratuits », sous la grande image "
+                          "de l'accueil des boosters (conseillé : seul à montrer la capacité) : "
+                          "pointe sur le nombre juste devant le « / »")
+LIBELLE_ONGLET = ("l'onglet « Boosters » du menu en haut du site (conseillé : cliqué pour "
+                  "revenir sur la page des boosters si Kyara l'a quittée)")
 MOLETTE = r'(?P<mol>, "molette": (?P<crans>\d+))?'
 ELEMENTS = (
     (rf"^COMPTEUR_CENTRE = {POSITION}",
-     lambda m: "le compteur « x/10 » en haut de la page Kyara : pointe de la souris "
-               "sur le nombre juste devant le « / » (le 5 de « 5/10 » ; "
-               "« 10/10 » : entre le 1 et le 0 ; « 20/20 » : entre le 2 et le 0)", False),
+     lambda m: "le compteur en haut de la page Kyara : pointe de la souris sur le "
+               "nombre dans le rond (« 12 »)", False),
     (rf'^\s*"(?P<nom>[^"]+)": \{{"position": {POSITION}, "double_clic": (?:True|False){MOLETTE}',
      lambda m: f"le pack « {m['nom']} » sur la page d'accueil", True),
     (rf"^AVATAR = {POSITION}",
@@ -131,6 +138,7 @@ ELEMENTS = (
      lambda m: "le bouton « Tout révéler » (écran des cartes à retourner)", False),
     (rf"^BOUTON_5_BOOSTERS = {POSITION}", lambda m: LIBELLE_BOUTON_5, False),
     (rf"^COMPTEUR_ROUGE = {POSITION}", lambda m: LIBELLE_COMPTEUR_ROUGE, False),
+    (rf"^ONGLET_BOOSTERS = {POSITION}", lambda m: LIBELLE_ONGLET, False),
 )
 NON_DEFINIE = "(0, 0)"
 MOTIF_EXECUTABLE = re.compile(r'^EXECUTABLE = (?P<val>"[^"]*")', re.MULTILINE)
@@ -153,27 +161,30 @@ EXECUTABLE = ""
 # (0, 0, 0, 0) = pas encore détecté.
 ZONE_ECRAN = (0, 0, 0, 0)
 
-# ---------- 2. Compteur de boosters (x/10) ----------
-# Compteur « x/10 » en haut de la page Kyara : pointe de la souris sur le
-# nombre juste devant le « / » (le 5 de « 5/10 » ; « 10/10 » : entre le 1
-# et le 0 du premier 10). S'il bouge un peu,
-# le script le retrouve tout seul (recalage automatique).
+# ---------- 2. Compteurs de boosters ----------
+# Compteur en haut de la page Kyara : le nombre dans le rond (« 12 ») ;
+# pointe de la souris sur ce nombre. (Ancien affichage « 5/10 » : sur le
+# nombre juste devant le « / ».) S'il bouge un peu, le script le retrouve
+# tout seul (recalage automatique).
 # (0, 0) = position pas encore placée (vaut pour toutes les positions).
 COMPTEUR_CENTRE = (0, 0)
 # Taille de la zone lue autour du centre (largeur, hauteur). Laisser tel quel.
 COMPTEUR_TAILLE = (100, 45)
-# Compteur rouge « 1/20 boosters gratuits · +1 dans … » (facultatif) : même
-# pointage que le compteur du haut. Relu quand celui du haut est douteux
-# (pastille « +8 » posée dessus, chiffre coupé…) : l'un répare l'autre.
-# (0, 0) = pas placé : seul le compteur du haut est lu.
+# Compteur rouge « 12/25 boosters gratuits · +1 dans … », sous la grande
+# image de l'accueil des boosters (conseillé) : pointe sur le nombre juste
+# devant le « / ». Seul à montrer la capacité (« /25 ») depuis que le
+# compteur du haut n'affiche plus que le nombre ; les deux compteurs sont
+# lus ensemble et l'un répare l'autre. (0, 0) = pas placé : la capacité
+# vient de CAPACITE_MAX, ou du rond une fois rempli.
 COMPTEUR_ROUGE = (0, 0)
 # Nombre de lectures « compteur plein » d'affilée avant d'ouvrir (évite une
 # fausse lecture).
 LECTURES_STABLES = 2
 # Capacité max du compteur de boosters : 10 sans abonnement, 20 avec un
 # abonnement qui ajoute 10 de capacité (« x/20 »). 0 = lue toute seule sur
-# le compteur (conseillé : marche aussi avec plusieurs comptes, abonnés ou
-# non). Dans tous les cas, le script ouvre quand le compteur est plein.
+# le compteur rouge, ou sur le rond une fois rempli (conseillé : marche
+# aussi avec plusieurs comptes, abonnés ou non). Dans tous les cas, le
+# script ouvre quand le compteur est plein.
 CAPACITE_MAX = 0
 # Pause entre deux lectures du compteur, en secondes.
 INTERVALLE = 2
@@ -264,11 +275,16 @@ SEQUENCE = [
 # (0, 0) = pas placé : ces 5 boosters restent sur le compteur.
 BOUTON_5_BOOSTERS = (0, 0)
 
-# ---------- 5. Popup « Tu es toujours là ? » ----------
-# Le popup est cherché sur tout ZONE_ECRAN ; le clic se fait sur son bouton.
-# Vérification complète toutes les N secondes (un test rapide tourne en plus
-# à chaque passage et la déclenche dès que le bouton rouge apparaît).
+# ---------- 5. Popups et page des boosters ----------
+# Popups « Tu es toujours là ? » et « Animations en veille » : cherchés sur
+# tout ZONE_ECRAN ; le clic se fait sur leur bouton. Vérification complète
+# toutes les N secondes (un test rapide tourne en plus à chaque passage et
+# la déclenche dès que le bouton rouge apparaît).
 INTERVALLE_POPUP = 10
+# Onglet « Boosters » du menu en haut du site (conseillé) : si Kyara quitte
+# la page des boosters (mise en veille des animations…), le script clique
+# dessus pour y revenir. (0, 0) = pas placé : c'est seulement signalé.
+ONGLET_BOOSTERS = (0, 0)
 
 # ---------- 6. Souris ----------
 # Mettre la souris dans le coin haut-gauche de l'écran principal arrête le script.
@@ -730,7 +746,7 @@ def trouver_elements(texte, tous=False):
 
 
 # Positions qu'on peut laisser à (0, 0).
-FACULTATIVES = (LIBELLE_BOUTON_5, LIBELLE_COMPTEUR_ROUGE)
+FACULTATIVES = (LIBELLE_BOUTON_5, LIBELLE_COMPTEUR_ROUGE, LIBELLE_ONGLET)
 
 
 def a_definir(texte):

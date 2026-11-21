@@ -207,6 +207,61 @@ def liberer_au_demarrage(nom):
         etat["pret"][nom] = 0.0
 
 
+# ============================================================
+# PYTHON QUI A LES MODULES
+# ============================================================
+def relancer_avec_les_modules(erreur, modules):
+    """
+    Module absent pour ce Python (plusieurs Python installés, chacun avec ses
+    propres modules ; un double-clic prend le plus récent) : relance le script
+    avec un autre Python installé qui a `modules`. Sinon : dit quoi faire. La
+    fenêtre attend Entrée avant de se fermer, pour qu'on puisse lire.
+    """
+    import re
+    import subprocess
+
+    print(f"Module « {erreur.name} » absent pour ce Python ({sys.version.split()[0]}, "
+          f"{sys.executable}).")
+    code = 1
+    autre = None
+    if not os.environ.get("KYARA_RELANCE"):
+        try:
+            liste = subprocess.run(["py", "-0p"], capture_output=True, text=True,
+                                   timeout=15).stdout
+        except (OSError, subprocess.SubprocessError):
+            liste = ""
+        for ligne in liste.splitlines():
+            chemin = re.search(r"[A-Za-z]:\\.*\.exe", ligne)
+            if not chemin or os.path.normcase(chemin[0]) == os.path.normcase(sys.executable):
+                continue
+            try:
+                if subprocess.run([chemin[0], "-c", "import " + ", ".join(modules)],
+                                  capture_output=True, timeout=60).returncode == 0:
+                    autre = chemin[0]
+                    break
+            except (OSError, subprocess.SubprocessError):
+                pass
+    if autre:
+        print(f"Relance avec {autre}, qui a les modules.\n", flush=True)
+        processus = subprocess.Popen([autre, os.path.abspath(sys.argv[0]), *sys.argv[1:]],
+                                     env={**os.environ, "KYARA_RELANCE": "1"})
+        while True:
+            try:
+                code = processus.wait()
+                break
+            except KeyboardInterrupt:
+                # Ctrl + C : c'est le script relancé qui s'arrête proprement.
+                continue
+        print("\nScript arrêté.")
+    else:
+        print("Aucun autre Python installé n'a les modules. Installe-les pour celui-ci :\n"
+              "    py -m pip install mss pyautogui pytesseract pillow")
+    try:
+        input("Appuie sur Entrée pour fermer.")
+    except (EOFError, KeyboardInterrupt):
+        pass
+    raise SystemExit(code)
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "reset":
         FICHIER_ETAT.write_text(json.dumps(_etat_vide(), indent=2), encoding="utf-8")
